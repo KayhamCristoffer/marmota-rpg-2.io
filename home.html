@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RPG Quests ⚔️ - Dashboard</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body class="dashboard-page">
+
+  <!-- Loader -->
+  <div id="pageLoader"><div class="loader-shield"><i class="fas fa-shield-halved"></i></div><p>Carregando…</p></div>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo"><i class="fas fa-shield-halved"></i><span>RPG Quests</span></div>
+      <button class="sidebar-toggle" id="sidebarToggle"><i class="fas fa-chevron-left"></i></button>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar-wrap">
+        <div class="user-avatar" id="sidebarAvatar">?</div>
+        <div class="user-level-badge" id="sidebarLevelBadge">Nv 1</div>
+      </div>
+      <div class="user-info">
+        <span class="user-name" id="sidebarNickname">Aventureiro</span>
+        <span class="user-role" id="sidebarRole">Usuário</span>
+      </div>
+    </div>
+    <div class="sidebar-xp">
+      <div class="xp-label"><span>XP</span><span id="sidebarXpLabel">0 / 100</span></div>
+      <div class="xp-bar"><div class="xp-fill" id="sidebarXpFill" style="width:0%"></div></div>
+    </div>
+    <div class="sidebar-coins"><i class="fas fa-coins"></i><span id="sidebarCoins">0</span><span class="coins-label">moedas</span></div>
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-page="dashboard"><i class="fas fa-home"></i><span>Dashboard</span></div>
+      <div class="nav-item" data-page="quests"><i class="fas fa-scroll"></i><span>Quests</span></div>
+      <div class="nav-item" data-page="my-quests"><i class="fas fa-tasks"></i><span>Minhas Quests</span></div>
+      <div class="nav-item" data-page="maps"><i class="fas fa-map"></i><span>Mapas</span></div>
+      <div class="nav-item" data-page="ranking"><i class="fas fa-trophy"></i><span>Ranking</span></div>
+      <div class="nav-item" data-page="profile"><i class="fas fa-user"></i><span>Perfil</span></div>
+      <div class="nav-divider"></div>
+      <div class="nav-item nav-admin" id="navAdmin" style="display:none" onclick="window.location.href='admin.html'"><i class="fas fa-cog"></i><span>Painel Admin</span></div>
+      <div class="nav-divider"></div>
+      <div class="nav-item nav-logout" id="navLogout"><i class="fas fa-sign-out-alt"></i><span>Sair</span></div>
+    </nav>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content" id="mainContent">
+    <div class="topbar">
+      <button class="topbar-menu" id="topbarMenu"><i class="fas fa-bars"></i></button>
+      <h1 class="topbar-title" id="topbarTitle">Dashboard</h1>
+      <div class="topbar-coins"><i class="fas fa-coins"></i><span id="topbarCoins">0</span></div>
+    </div>
+
+    <!-- PAGE: DASHBOARD -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-header">
+        <h2 class="page-title"><i class="fas fa-home"></i> Dashboard</h2>
+        <span class="supabase-badge"><i class="fas fa-database"></i> Supabase</span>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card gold"><div class="stat-icon"><i class="fas fa-coins"></i></div><div><span class="stat-value" id="statCoins">0</span><span class="stat-label">Moedas Totais</span></div></div>
+        <div class="stat-card purple"><div class="stat-icon"><i class="fas fa-star"></i></div><div><span class="stat-value" id="statXp">0</span><span class="stat-label">XP Total</span></div></div>
+        <div class="stat-card blue"><div class="stat-icon"><i class="fas fa-layer-group"></i></div><div><span class="stat-value" id="statLevel">1</span><span class="stat-label">Nível</span></div></div>
+        <div class="stat-card green"><div class="stat-icon"><i class="fas fa-check-circle"></i></div><div><span class="stat-value" id="statQuests">0</span><span class="stat-label">Quests Concluídas</span></div></div>
+        <div class="stat-card cyan"><div class="stat-icon"><i class="fas fa-gem"></i></div><div><span class="stat-value" id="statTokens">0</span><span class="stat-label">Tokens</span></div></div>
+        <div class="stat-card orange"><div class="stat-icon"><i class="fas fa-medal"></i></div><div><span class="stat-value" id="statBadges">0</span><span class="stat-label">Conquistas</span></div></div>
+      </div>
+      <div class="xp-progress-card">
+        <div class="xp-header"><h3><i class="fas fa-star"></i> Progresso de XP</h3><span id="xpLevelLabel">Nível 1</span></div>
+        <div class="xp-bar-large"><div class="xp-fill-large" id="xpFillLarge" style="width:0%"><span class="xp-percent" id="xpPercent">0%</span></div></div>
+        <p class="xp-hint" id="xpHint">Complete quests para ganhar XP e subir de nível!</p>
+      </div>
+      <div class="period-coins-grid">
+        <div class="period-card"><i class="fas fa-sun"></i><span class="period-value" id="dailyCoins">0</span><span class="period-label">Moedas Hoje</span></div>
+        <div class="period-card"><i class="fas fa-calendar-week"></i><span class="period-value" id="weeklyCoins">0</span><span class="period-label">Moedas esta Semana</span></div>
+        <div class="period-card"><i class="fas fa-calendar-alt"></i><span class="period-value" id="monthlyCoins">0</span><span class="period-label">Moedas este Mês</span></div>
+      </div>
+      <div class="badges-card"><h3><i class="fas fa-medal"></i> Conquistas Desbloqueadas</h3><div class="badges-grid" id="badgesGrid"><p class="no-badges">Nenhuma conquista ainda. Complete quests para desbloquear!</p></div></div>
+    </div>
+
+    <!-- PAGE: QUESTS -->
+    <div class="page" id="page-quests">
+      <div class="page-header">
+        <h2 class="page-title"><i class="fas fa-scroll"></i> Quests Disponíveis</h2>
+      </div>
+      <div id="maintenanceBanner" class="maintenance-banner" style="display:none"><i class="fas fa-tools"></i><span>Sistema em manutenção (01:30–02:00). Submissões temporariamente bloqueadas.</span></div>
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="all"><i class="fas fa-th"></i> Todas</button>
+        <button class="filter-btn" data-filter="daily"><i class="fas fa-sun"></i> Diárias</button>
+        <button class="filter-btn" data-filter="weekly"><i class="fas fa-calendar-week"></i> Semanais</button>
+        <button class="filter-btn" data-filter="monthly"><i class="fas fa-calendar-alt"></i> Mensais</button>
+        <button class="filter-btn" data-filter="event"><i class="fas fa-star"></i> Eventos</button>
+      </div>
+      <div class="quests-grid" id="questsGrid"><div class="empty-state"><i class="fas fa-scroll"></i><h3>Carregando quests…</h3></div></div>
+    </div>
+
+    <!-- PAGE: MY QUESTS -->
+    <div class="page" id="page-my-quests">
+      <div class="page-header"><h2 class="page-title"><i class="fas fa-tasks"></i> Minhas Quests</h2></div>
+      <div class="my-quests-list" id="myQuestsList"><div class="empty-state"><i class="fas fa-tasks"></i><h3>Carregando…</h3></div></div>
+    </div>
+
+    <!-- PAGE: MAPS -->
+    <div class="page" id="page-maps">
+      <div class="page-header"><h2 class="page-title"><i class="fas fa-map"></i> Mapas</h2></div>
+      <div class="filter-bar" id="mapsFilterBar">
+        <button class="filter-btn active" data-filter="all"><i class="fas fa-th"></i> Todos</button>
+        <button class="filter-btn" data-filter="adventure"><i class="fas fa-mountain"></i> Aventura</button>
+        <button class="filter-btn" data-filter="dungeon"><i class="fas fa-dungeon"></i> Dungeon</button>
+        <button class="filter-btn" data-filter="city"><i class="fas fa-city"></i> Cidade</button>
+      </div>
+      <div class="maps-grid" id="mapsGrid"><div class="empty-state"><i class="fas fa-map"></i><h3>Carregando mapas…</h3></div></div>
+    </div>
+
+    <!-- PAGE: RANKING -->
+    <div class="page" id="page-ranking">
+      <div class="page-header"><h2 class="page-title"><i class="fas fa-trophy"></i> Ranking</h2></div>
+      <div class="filter-bar">
+        <button class="filter-btn active" data-period="coins"><i class="fas fa-infinity"></i> Total</button>
+        <button class="filter-btn" data-period="daily"><i class="fas fa-sun"></i> Diário</button>
+        <button class="filter-btn" data-period="weekly"><i class="fas fa-calendar-week"></i> Semanal</button>
+        <button class="filter-btn" data-period="monthly"><i class="fas fa-calendar-alt"></i> Mensal</button>
+      </div>
+      <div class="ranking-podium" id="rankingPodium"></div>
+      <div class="ranking-list" id="rankingList"><div class="empty-state"><i class="fas fa-trophy"></i><h3>Carregando ranking…</h3></div></div>
+    </div>
+
+    <!-- PAGE: PROFILE -->
+    <div class="page" id="page-profile">
+      <div class="page-header"><h2 class="page-title"><i class="fas fa-user"></i> Perfil</h2></div>
+      <div class="profile-card">
+        <div class="profile-avatar-wrap">
+          <div class="profile-avatar" id="profileAvatar">?</div>
+          <div class="profile-level" id="profileLevel">Nv 1</div>
+        </div>
+        <div class="profile-details">
+          <h2 id="profileNickname">Aventureiro</h2>
+          <span class="profile-email" id="profileEmail"></span>
+          <span class="profile-role-badge" id="profileRole">Usuário</span>
+        </div>
+      </div>
+      <div class="profile-edit-card">
+        <h3><i class="fas fa-edit"></i> Editar Perfil</h3>
+        <div class="form-group">
+          <label>Nickname</label>
+          <input type="text" id="editNickname" placeholder="Seu nickname" maxlength="30"/>
+        </div>
+        <div class="form-group">
+          <label>URL do Avatar <small>(link de imagem)</small></label>
+          <input type="url" id="editAvatarUrl" placeholder="https://...imagem.png"/>
+        </div>
+        <button class="btn-primary" id="saveProfileBtn"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL: ENVIO DE COMPROVANTE (Quest) -->
+  <div class="modal-overlay" id="submitQuestModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fas fa-upload"></i> Enviar Comprovante</h3>
+        <button class="modal-close" id="closeSubmitModal"><i class="fas fa-times"></i></button>
+      </div>
+      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">Envie um print ou foto como comprovante da quest concluída. Será analisado pelo admin.</p>
+      <input type="hidden" id="submitQuestId"/>
+      <div class="upload-area" id="uploadArea">
+        <input type="file" id="proofFile" accept="image/*"/>
+        <i class="fas fa-cloud-upload-alt"></i>
+        <p>Clique ou arraste a imagem aqui</p>
+        <small>JPEG, PNG – máx. 2MB</small>
+      </div>
+      <div class="upload-preview" id="uploadPreview" style="display:none">
+        <img id="previewImg" src="" alt="Preview"/>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="cancelSubmitModal">Cancelar</button>
+        <button class="btn-primary" id="confirmSubmitQuest" disabled><i class="fas fa-paper-plane"></i> Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ENVIO DE MAPA -->
+  <div class="modal-overlay" id="submitMapModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fas fa-map-marked-alt"></i> Submeter Mapa</h3>
+        <button class="modal-close" id="closeMapModal"><i class="fas fa-times"></i></button>
+      </div>
+      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">Envie um screenshot do mapa utilizado.</p>
+      <input type="hidden" id="submitMapId"/>
+      <div class="upload-area" id="mapUploadArea">
+        <input type="file" id="mapProofFile" accept="image/*"/>
+        <i class="fas fa-cloud-upload-alt"></i>
+        <p>Clique ou arraste a imagem aqui</p>
+        <small>JPEG, PNG – máx. 2MB</small>
+      </div>
+      <div class="upload-preview" id="mapUploadPreview" style="display:none">
+        <img id="mapPreviewImg" src="" alt="Preview"/>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="cancelMapModal">Cancelar</button>
+        <button class="btn-primary" id="confirmSubmitMap" disabled><i class="fas fa-paper-plane"></i> Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session Timer -->
+  <div id="sessionTimerBanner"><i class="fas fa-clock"></i><span id="sessionTimerText">Sessão expira em breve</span></div>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script type="module" src="js/home.js"></script>
+</body>
+</html>

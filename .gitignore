@@ -1,0 +1,31 @@
+# Dependências Node (não usadas no projeto - pure vanilla)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Ambiente
+.env
+.env.local
+.env.development
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Firebase (legado - não mais usado)
+.firebase/
+firebase-debug.log

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RPG Quests ⚔️ - Admin</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body class="dashboard-page">
+
+  <!-- Loader -->
+  <div id="pageLoader"><div class="loader-shield"><i class="fas fa-shield-halved"></i></div><p>Carregando Admin…</p></div>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo"><i class="fas fa-cog"></i><span>Admin Panel</span></div>
+      <button class="sidebar-toggle" id="sidebarToggle"><i class="fas fa-chevron-left"></i></button>
+    </div>
+    <div class="sidebar-user">
+      <div class="user-avatar-wrap">
+        <div class="user-avatar" id="sidebarAvatar">A</div>
+        <div class="user-level-badge admin-badge">ADM</div>
+      </div>
+      <div class="user-info">
+        <span class="user-name" id="sidebarNickname">Admin</span>
+        <span class="user-role admin-role">⚔ Admin</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-item" onclick="window.location.href='home.html'"><i class="fas fa-home"></i><span>Dashboard</span></div>
+      <div class="nav-divider"></div>
+      <div class="nav-item active" data-tab="submissions"><i class="fas fa-inbox"></i><span>Submissões</span><span class="nav-badge" id="submissionsBadge">0</span></div>
+      <div class="nav-item" data-tab="quests"><i class="fas fa-scroll"></i><span>Quests</span></div>
+      <div class="nav-item" data-tab="maps"><i class="fas fa-map"></i><span>Mapas</span></div>
+      <div class="nav-item" data-tab="achievements"><i class="fas fa-medal"></i><span>Conquistas</span></div>
+      <div class="nav-item" data-tab="users"><i class="fas fa-users"></i><span>Usuários</span></div>
+      <div class="nav-item" data-tab="rankings"><i class="fas fa-trophy"></i><span>Rankings</span></div>
+      <div class="nav-divider"></div>
+      <div class="nav-item nav-logout" id="navLogout"><i class="fas fa-sign-out-alt"></i><span>Sair</span></div>
+    </nav>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content" id="mainContent">
+    <div class="topbar">
+      <button class="topbar-menu" id="topbarMenu"><i class="fas fa-bars"></i></button>
+      <h1 class="topbar-title" id="topbarTitle">⚙️ Painel Admin</h1>
+      <span class="supabase-badge"><i class="fas fa-database"></i> Supabase</span>
+    </div>
+
+    <div style="padding:28px 32px">
+
+      <!-- SUBMISSÕES -->
+      <div class="admin-panel active" id="panel-submissions">
+        <div class="page-header"><h2 class="page-title"><i class="fas fa-inbox"></i> Submissões Pendentes</h2></div>
+        <div class="submissions-list" id="submissionsList"><div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div></div>
+      </div>
+
+      <!-- QUESTS -->
+      <div class="admin-panel" id="panel-quests">
+        <div class="page-header">
+          <h2 class="page-title"><i class="fas fa-scroll"></i> Gerenciar Quests</h2>
+          <button class="btn-primary" onclick="openQuestModal()"><i class="fas fa-plus"></i> Nova Quest</button>
+        </div>
+        <div class="admin-list" id="questsList"></div>
+      </div>
+
+      <!-- MAPAS -->
+      <div class="admin-panel" id="panel-maps">
+        <div class="page-header">
+          <h2 class="page-title"><i class="fas fa-map"></i> Gerenciar Mapas</h2>
+          <button class="btn-primary" onclick="openMapModal()"><i class="fas fa-plus"></i> Novo Mapa</button>
+        </div>
+        <div class="admin-list" id="mapsList"></div>
+      </div>
+
+      <!-- CONQUISTAS -->
+      <div class="admin-panel" id="panel-achievements">
+        <div class="page-header">
+          <h2 class="page-title"><i class="fas fa-medal"></i> Gerenciar Conquistas</h2>
+          <button class="btn-primary" onclick="openAchievementModal()"><i class="fas fa-plus"></i> Nova Conquista</button>
+        </div>
+        <div class="admin-list" id="achievementsList"></div>
+      </div>
+
+      <!-- USUÁRIOS -->
+      <div class="admin-panel" id="panel-users">
+        <div class="page-header"><h2 class="page-title"><i class="fas fa-users"></i> Usuários</h2></div>
+        <div class="admin-list" id="usersList"></div>
+      </div>
+
+      <!-- RANKINGS -->
+      <div class="admin-panel" id="panel-rankings">
+        <div class="page-header"><h2 class="page-title"><i class="fas fa-trophy"></i> Reset Rankings</h2></div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:24px;max-width:600px">
+          <p style="color:var(--text-secondary);font-size:.85rem;margin-bottom:20px">
+            ⚠️ Os resets salvam o histórico antes de zerar. Use com cuidado! A janela de manutenção automática é 01:30–02:00.
+          </p>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <button class="btn-danger" id="resetDailyBtn"><i class="fas fa-sun"></i> Reset Ranking Diário</button>
+            <button class="btn-danger" id="resetWeeklyBtn"><i class="fas fa-calendar-week"></i> Reset Ranking Semanal</button>
+            <button class="btn-danger" id="resetMonthlyBtn"><i class="fas fa-calendar-alt"></i> Reset Ranking Mensal</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- MODAL: QUEST -->
+  <div class="modal-overlay" id="questModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="questModalTitle"><i class="fas fa-scroll"></i> Nova Quest</h3>
+        <button class="modal-close" onclick="closeModal('questModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="questEditId"/>
+      <div class="form-group"><label>Título *</label><input type="text" id="questTitle" placeholder="Nome da quest" maxlength="100"/></div>
+      <div class="form-group"><label>Descrição</label><textarea id="questDescription" placeholder="Descreva a quest..."></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Tipo *</label>
+          <select id="questType">
+            <option value="daily">Diária</option>
+            <option value="weekly">Semanal</option>
+            <option value="monthly">Mensal</option>
+            <option value="event">Evento</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Nível Mínimo</label><input type="number" id="questMinLevel" value="1" min="1"/></div>
+        <div class="form-group"><label>Recompensa Moedas</label><input type="number" id="questCoins" value="0" min="0"/></div>
+        <div class="form-group"><label>Recompensa XP</label><input type="number" id="questXp" value="0" min="0"/></div>
+      </div>
+      <div class="form-group"><label>Ícone (emoji)</label><input type="text" id="questIcon" placeholder="⚔️" maxlength="10"/></div>
+      <div class="form-group" style="display:flex;align-items:center;gap:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem">
+          <input type="checkbox" id="questActive" checked style="accent-color:var(--gold);width:16px;height:16px"/> Quest Ativa
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem">
+          <input type="checkbox" id="questImageRequired" style="accent-color:var(--gold);width:16px;height:16px"/> Exige Comprovante
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('questModal')">Cancelar</button>
+        <button class="btn-primary" id="saveQuestBtn" onclick="saveQuest()"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: MAPA -->
+  <div class="modal-overlay" id="mapModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="mapModalTitle"><i class="fas fa-map"></i> Novo Mapa</h3>
+        <button class="modal-close" onclick="closeModal('mapModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="mapEditId"/>
+      <div class="form-group"><label>Título *</label><input type="text" id="mapTitle" placeholder="Nome do mapa"/></div>
+      <div class="form-group"><label>Descrição</label><textarea id="mapDescription"></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Tipo</label><select id="mapType"><option value="adventure">Aventura</option><option value="dungeon">Dungeon</option><option value="city">Cidade</option><option value="other">Outro</option></select></div>
+        <div class="form-group"><label>Ícone (emoji)</label><input type="text" id="mapIcon" placeholder="🗺️" maxlength="10"/></div>
+        <div class="form-group"><label>Recompensa Moedas</label><input type="number" id="mapCoins" value="0" min="0"/></div>
+        <div class="form-group"><label>Recompensa XP</label><input type="number" id="mapXp" value="0" min="0"/></div>
+        <div class="form-group"><label>Recompensa Tokens</label><input type="number" id="mapTokens" value="0" min="0"/></div>
+      </div>
+      <div class="form-group"><label>URL de Download</label><input type="url" id="mapDownload" placeholder="https://..."/></div>
+      <div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem"><input type="checkbox" id="mapImageRequired" style="accent-color:var(--gold);width:16px;height:16px"/> Exige Comprovante para recompensa</label></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('mapModal')">Cancelar</button>
+        <button class="btn-primary" onclick="saveMap()"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CONQUISTA -->
+  <div class="modal-overlay" id="achievementModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="achievementModalTitle"><i class="fas fa-medal"></i> Nova Conquista</h3>
+        <button class="modal-close" onclick="closeModal('achievementModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="achEditId"/>
+      <div class="form-group"><label>Título *</label><input type="text" id="achTitle" placeholder="Nome da conquista"/></div>
+      <div class="form-group"><label>Descrição</label><textarea id="achDescription"></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Ícone (emoji)</label><input type="text" id="achIcon" placeholder="🏅" maxlength="10"/></div>
+        <div class="form-group"><label>Categoria</label><input type="text" id="achCategory" placeholder="quests"/></div>
+        <div class="form-group"><label>Nível Necessário</label><input type="number" id="achLevel" value="0" min="0"/></div>
+        <div class="form-group"><label>Quests Necessárias</label><input type="number" id="achQuests" value="0" min="0"/></div>
+        <div class="form-group"><label>Bônus Moedas</label><input type="number" id="achCoins" value="0" min="0"/></div>
+        <div class="form-group"><label>Bônus XP</label><input type="number" id="achXp" value="0" min="0"/></div>
+        <div class="form-group"><label>Bônus Tokens</label><input type="number" id="achTokens" value="0" min="0"/></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('achievementModal')">Cancelar</button>
+        <button class="btn-primary" onclick="saveAchievement()"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: VER COMPROVANTE -->
+  <div class="modal-overlay" id="proofModal">
+    <div class="modal-box" style="max-width:700px">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fas fa-image"></i> Comprovante</h3>
+        <button class="modal-close" onclick="closeModal('proofModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div style="text-align:center"><img id="proofModalImg" src="" alt="Comprovante" style="max-width:100%;max-height:70vh;border-radius:var(--radius-md);border:1px solid var(--border)"/></div>
+    </div>
+  </div>
+
+  <div id="sessionTimerBanner"><i class="fas fa-clock"></i><span id="sessionTimerText">Sessão expira em breve</span></div>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RPG Quests ⚔️ - Login</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+</head>
+<body class="login-page">
+
+  <!-- Loader -->
+  <div id="pageLoader">
+    <div class="loader-shield"><i class="fas fa-shield-halved"></i></div>
+    <p>Carregando RPG Quests…</p>
+  </div>
+
+  <!-- Partículas -->
+  <div class="particles" id="particles"></div>
+
+  <!-- Container -->
+  <div class="login-container">
+    <div class="login-logo">
+      <div class="shield-icon"><i class="fas fa-shield-halved"></i></div>
+      <h1 class="game-title">RPG <span>Quests</span></h1>
+      <p class="game-subtitle">⚔️ Complete missões · Ganhe recompensas · Conquiste o ranking ⚔️</p>
+      <div style="margin-top:8px">
+        <span class="supabase-badge"><i class="fas fa-database"></i> Powered by Supabase</span>
+      </div>
+    </div>
+
+    <!-- Card de Login -->
+    <div class="login-card">
+      <div class="card-glow"></div>
+      <div class="login-stats-preview">
+        <div class="stat-item"><i class="fas fa-scroll"></i><span>Quests Épicas</span></div>
+        <div class="stat-item"><i class="fas fa-trophy"></i><span>Rankings Globais</span></div>
+        <div class="stat-item"><i class="fas fa-medal"></i><span>Conquistas</span></div>
+      </div>
+      <div class="login-divider"><span>Escolha como entrar</span></div>
+      <div class="login-actions">
+        <button class="btn-login-email" id="openLoginBtn" type="button">
+          <i class="fas fa-envelope"></i><span>Entrar com E-mail</span>
+        </button>
+        <button class="btn-register" id="openRegisterBtn" type="button">
+          <i class="fas fa-user-plus"></i><span>Criar conta gratuita</span>
+        </button>
+      </div>
+      <p class="login-disclaimer"><i class="fas fa-lock"></i> Login seguro via Supabase Auth</p>
+    </div>
+
+    <!-- Features -->
+    <div class="login-features">
+      <div class="feature-card"><i class="fas fa-dragon"></i><h3>Quests Diárias</h3><p>Complete missões e ganhe moedas com reset automático</p></div>
+      <div class="feature-card"><i class="fas fa-chart-line"></i><h3>Ranking em Tempo Real</h3><p>Diário, semanal e mensal — Realtime via Supabase</p></div>
+      <div class="feature-card"><i class="fas fa-medal"></i><h3>Conquistas</h3><p>Desbloqueie badges por progresso e nível</p></div>
+    </div>
+  </div>
+
+  <!-- MODAL: LOGIN -->
+  <div class="auth-overlay" id="loginOverlay">
+    <div class="auth-box">
+      <button class="close-btn" id="closeLogin"><i class="fas fa-times"></i></button>
+      <div class="auth-header">
+        <span class="auth-icon">⚔️</span>
+        <h2>Entrar na Guilda</h2>
+        <p class="auth-subtitle">Bem-vindo de volta, aventureiro!</p>
+      </div>
+      <div class="auth-error" id="loginError"><i class="fas fa-exclamation-circle"></i><span id="loginErrorMsg"></span></div>
+      <div class="form-group">
+        <label><i class="fas fa-envelope"></i> E-mail</label>
+        <input type="email" id="loginEmail" placeholder="seu@email.com" autocomplete="email"/>
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-lock"></i> Senha</label>
+        <div class="password-wrap">
+          <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password"/>
+          <button class="btn-eye" id="toggleLoginPwd" type="button"><i class="fas fa-eye" id="eyeLoginIcon"></i></button>
+        </div>
+      </div>
+      <div class="remember-row">
+        <label><input type="checkbox" id="rememberMe" checked/> Lembrar sessão</label>
+        <a class="forgot-link" id="forgotPasswordLink"><i class="fas fa-key" style="font-size:.7rem;margin-right:3px"></i>Esqueci a senha</a>
+      </div>
+      <button class="btn-auth-primary" id="submitLoginBtn" type="button">
+        <i class="fas fa-sign-in-alt"></i> Entrar
+      </button>
+      <div class="auth-switch">Não tem conta? <a id="goToRegister">Criar conta grátis</a></div>
+    </div>
+  </div>
+
+  <!-- MODAL: CADASTRO -->
+  <div class="auth-overlay" id="registerOverlay">
+    <div class="auth-box">
+      <button class="close-btn" id="closeRegister"><i class="fas fa-times"></i></button>
+      <div class="auth-header">
+        <span class="auth-icon">🛡️</span>
+        <h2>Criar Conta</h2>
+        <p class="auth-subtitle">Junte-se à guilda de aventureiros!</p>
+      </div>
+      <div class="auth-error" id="registerError"><i class="fas fa-exclamation-circle"></i><span id="registerErrorMsg"></span></div>
+      <div class="form-group">
+        <label><i class="fas fa-user"></i> Nome de Aventureiro (Nickname)</label>
+        <input type="text" id="regName" placeholder="Ex: KayhamWarrior" autocomplete="nickname" maxlength="30"/>
+        <div class="field-hint info">Entre 2 e 30 caracteres</div>
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-envelope"></i> E-mail</label>
+        <input type="email" id="regEmail" placeholder="seu@email.com" autocomplete="email"/>
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-lock"></i> Senha <small>(mín. 6 caracteres)</small></label>
+        <div class="password-wrap">
+          <input type="password" id="regPassword" placeholder="••••••••" autocomplete="new-password"/>
+          <button class="btn-eye" id="toggleRegPwd" type="button"><i class="fas fa-eye" id="eyeRegIcon"></i></button>
+        </div>
+        <div class="pwd-strength-wrap str-0" id="pwdStrengthWrap">
+          <div class="pwd-strength-bar"><div class="pwd-strength-fill"></div></div>
+          <span class="pwd-strength-label" id="pwdStrengthLabel">Digite uma senha</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-check-double"></i> Confirmar Senha</label>
+        <div class="password-wrap">
+          <input type="password" id="regConfirm" placeholder="••••••••" autocomplete="new-password"/>
+          <button class="btn-eye" id="toggleRegConfirm" type="button"><i class="fas fa-eye" id="eyeRegConfirmIcon"></i></button>
+        </div>
+        <div class="field-hint" id="regConfirmHint"></div>
+      </div>
+      <button class="btn-auth-primary" id="submitRegisterBtn" type="button">
+        <i class="fas fa-user-plus"></i> Criar Conta
+      </button>
+      <div class="auth-switch">Já tem conta? <a id="goToLogin">Entrar aqui</a></div>
+    </div>
+  </div>
+
+  <!-- MODAL: ESQUECI A SENHA -->
+  <div class="auth-overlay" id="forgotOverlay">
+    <div class="auth-box">
+      <button class="close-btn" id="closeForgot"><i class="fas fa-times"></i></button>
+      <div class="forgot-steps"><div class="forgot-step active" id="fstep1"></div><div class="forgot-step" id="fstep2"></div></div>
+      <div id="forgotStep1">
+        <div class="auth-header">
+          <span class="auth-icon">🔑</span>
+          <h2>Recuperar Senha</h2>
+          <p class="auth-subtitle">Digite o e-mail da sua conta para receber o link</p>
+        </div>
+        <div class="auth-error" id="forgotError"><i class="fas fa-exclamation-circle"></i><span id="forgotErrorMsg"></span></div>
+        <div class="form-group">
+          <label><i class="fas fa-envelope"></i> E-mail da conta</label>
+          <input type="email" id="forgotEmail" placeholder="seu@email.com" autocomplete="email"/>
+        </div>
+        <button class="btn-auth-primary" id="sendResetBtn" type="button"><i class="fas fa-paper-plane"></i> Enviar Link</button>
+        <div style="margin-top:.8rem;text-align:center">
+          <button class="btn-auth-ghost" id="backToLoginBtn" type="button"><i class="fas fa-arrow-left"></i> Voltar ao Login</button>
+        </div>
+      </div>
+      <div id="forgotStep2" style="display:none">
+        <div class="auth-header">
+          <div class="success-circle">📧</div>
+          <h2>E-mail Enviado!</h2>
+          <p class="auth-subtitle">Verifique sua caixa de entrada para redefinir a senha</p>
+        </div>
+        <button class="btn-auth-primary" id="forgotDoneBtn" type="button"><i class="fas fa-check"></i> Ir para o Login</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session Timer -->
+  <div id="sessionTimerBanner"><i class="fas fa-clock"></i><span id="sessionTimerText">Sessão expira em breve</span></div>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script type="module" src="js/auth.js"></script>
+</body>
+</html>
