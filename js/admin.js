@@ -1,5 +1,7 @@
 // ============================================================
-// ADMIN.JS - Painel Administrativo com Supabase
+// ADMIN.JS v2 - Painel Administrativo com Supabase
+// Fixes: users list, RLS, profileRole edit, map icon selector,
+//        getAllAchievements call, submissions com profile_nickname
 // ============================================================
 import { requireAuth, showToast, renderUserInSidebar } from '../supabase/session-manager.js';
 import {
@@ -11,16 +13,34 @@ import {
   resetDailyRanking, resetWeeklyRanking, resetMonthlyRanking
 } from '../supabase/database.js';
 
-// ── State ────────────────────────────────────────────────────
+// ── Map type icons ─────────────────────────────────────────────
+const MAP_ICONS = {
+  'adventure': '🗺️',
+  'pvp':       '⚔️',
+  'city':      '🏙️',
+  'dungeon':   '🏰',
+  'lucky':     '🍀',
+  'event':     '🎉',
+  'survival':  '🌿',
+  'parkour':   '🏃',
+  'custom':    '⭐'
+};
+
+// ── Role labels ────────────────────────────────────────────────
+const ROLE_LABELS = {
+  user:       'Marmotinha',
+  moderator:  'Moderador',
+  admin:      'Admin'
+};
+
 let currentTab = 'submissions';
 
 // ── Init ─────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
-  const auth = await requireAuth(true); // admin required
+  const auth = await requireAuth(true);
   if (!auth) return;
 
   renderUserInSidebar(auth.profile);
-
   setupSidebar(auth);
   setupTabNavigation();
   setupResetButtons();
@@ -42,10 +62,6 @@ function setupSidebar(auth) {
     await signOut();
     window.location.href = 'index.html';
   });
-  const av = document.getElementById('sidebarAvatar');
-  if (av && auth.profile) av.textContent = (auth.profile.nickname || 'A')[0].toUpperCase();
-  const nn = document.getElementById('sidebarNickname');
-  if (nn) nn.textContent = auth.profile.nickname || 'Admin';
 }
 
 function setupTabNavigation() {
@@ -86,20 +102,30 @@ async function loadSubmissions() {
     const subs = await getPendingSubmissions();
     const badge = document.getElementById('submissionsBadge');
     if (badge) badge.textContent = subs.length;
-    if (!subs.length) { list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><h3>Nenhuma submissão pendente</h3><p>Tudo em dia!</p></div>'; return; }
-    list.innerHTML = subs.map(s => `
-      <div class="submission-item" id="sub-${s.id}">
+    if (!subs.length) {
+      list.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><h3>Nenhuma submissão pendente</h3><p>Tudo em dia!</p></div>';
+      return;
+    }
+    list.innerHTML = subs.map(s => {
+      const displayName = s.users?.profile_nickname || s.users?.nickname || 'Usuário';
+      return `<div class="submission-item" id="sub-${s.id}">
         <div style="display:flex;flex-direction:column;gap:4px;flex:1">
-          <strong style="font-family:var(--font-title);color:var(--text-primary)">${s.users?.nickname || 'Usuário'}</strong>
-          <span style="font-size:.8rem;color:var(--text-secondary)">Quest: ${s.quests?.title || s.quest_id}</span>
+          <strong style="font-family:var(--font-title);color:var(--text-primary)">${displayName}</strong>
+          <span style="font-size:.8rem;color:var(--text-secondary)">Quest: ${s.quests?.title || s.quest_id || 'Mapa'}</span>
           <span style="font-size:.75rem;color:var(--text-muted)">${new Date(s.submitted_at).toLocaleString('pt-BR')} · +${s.quests?.reward_coins||0} moedas / +${s.quests?.reward_xp||0} XP</span>
         </div>
-        ${s.proof_url ? `<img src="${s.proof_url}" class="proof-img" onclick="viewProof('${s.proof_url}')" title="Ver comprovante"/>` : '<span style="color:var(--text-muted);font-size:.8rem">Sem comprovante</span>'}
+        ${s.proof_url
+          ? `<img src="${s.proof_url}" class="proof-img" onclick="viewProof('${s.id}')" title="Ver comprovante" style="cursor:pointer"/>`
+          : '<span style="color:var(--text-muted);font-size:.8rem">Sem comprovante</span>'}
         <div class="submission-actions">
           <button class="btn-approve" onclick="handleApprove('${s.id}')"><i class="fas fa-check"></i> Aprovar</button>
           <button class="btn-reject"  onclick="handleReject('${s.id}')"><i class="fas fa-times"></i> Rejeitar</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
+    // Armazena proof URLs para o modal
+    window._proofUrls = {};
+    subs.forEach(s => { if (s.proof_url) window._proofUrls[s.id] = s.proof_url; });
   } catch (err) {
     list.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${err.message}</h3></div>`;
   }
@@ -129,7 +155,9 @@ window.handleReject = async function(subId) {
   }
 };
 
-window.viewProof = function(url) {
+window.viewProof = function(subId) {
+  const url = window._proofUrls?.[subId];
+  if (!url) return;
   const img = document.getElementById('proofModalImg');
   if (img) img.src = url;
   openModal('proofModal');
@@ -149,7 +177,7 @@ async function loadQuests() {
         <span style="font-size:1.5rem">${q.icon_url || '📜'}</span>
         <div style="flex:1">
           <div style="font-family:var(--font-title);color:var(--text-primary)">${q.title}</div>
-          <div style="font-size:.75rem;color:var(--text-secondary)">${typeLabels[q.type]||q.type} · +${q.reward_coins} moedas · +${q.reward_xp} XP · Nv${q.min_level}+ · ${q.is_active?'<span style="color:var(--green)">Ativa</span>':'<span style="color:var(--red)">Inativa</span>'}</div>
+          <div style="font-size:.75rem;color:var(--text-secondary)">${typeLabels[q.type]||q.type} · +${q.reward_coins} moedas · +${q.reward_xp} XP · Nível ${q.min_level}+ · ${q.is_active?'<span style="color:var(--green)">Ativa</span>':'<span style="color:var(--red)">Inativa</span>'}</div>
         </div>
         <div class="admin-item-actions">
           <button class="btn-edit btn-sm" onclick="openQuestModal('${q.id}')"><i class="fas fa-edit"></i></button>
@@ -163,7 +191,6 @@ async function loadQuests() {
 }
 
 window.openQuestModal = async function(questId) {
-  clearForm(['questTitle','questDescription','questIcon','questEditId']);
   document.getElementById('questTitle').value = '';
   document.getElementById('questDescription').value = '';
   document.getElementById('questType').value = 'daily';
@@ -173,6 +200,7 @@ window.openQuestModal = async function(questId) {
   document.getElementById('questActive').checked = true;
   document.getElementById('questImageRequired').checked = true;
   document.getElementById('questEditId').value = '';
+  document.getElementById('questIcon').value = '';
   document.getElementById('questModalTitle').innerHTML = '<i class="fas fa-scroll"></i> Nova Quest';
 
   if (questId) {
@@ -180,16 +208,16 @@ window.openQuestModal = async function(questId) {
       const quests = await getAllQuests();
       const q = quests.find(x => x.id === questId);
       if (q) {
-        document.getElementById('questEditId').value = q.id;
-        document.getElementById('questTitle').value = q.title;
-        document.getElementById('questDescription').value = q.description || '';
-        document.getElementById('questType').value = q.type;
-        document.getElementById('questMinLevel').value = q.min_level || 1;
-        document.getElementById('questCoins').value = q.reward_coins || 0;
-        document.getElementById('questXp').value = q.reward_xp || 0;
-        document.getElementById('questActive').checked = q.is_active;
+        document.getElementById('questEditId').value       = q.id;
+        document.getElementById('questTitle').value        = q.title;
+        document.getElementById('questDescription').value  = q.description || '';
+        document.getElementById('questType').value         = q.type;
+        document.getElementById('questMinLevel').value     = q.min_level || 1;
+        document.getElementById('questCoins').value        = q.reward_coins || 0;
+        document.getElementById('questXp').value           = q.reward_xp || 0;
+        document.getElementById('questActive').checked     = q.is_active;
         document.getElementById('questImageRequired').checked = q.image_required;
-        document.getElementById('questIcon').value = q.icon_url || '';
+        document.getElementById('questIcon').value         = q.icon_url || '';
         document.getElementById('questModalTitle').innerHTML = '<i class="fas fa-edit"></i> Editar Quest';
       }
     } catch (e) {}
@@ -199,7 +227,7 @@ window.openQuestModal = async function(questId) {
 
 window.saveQuest = async function() {
   const editId = document.getElementById('questEditId').value;
-  const data = {
+  const data   = {
     title:          document.getElementById('questTitle').value.trim(),
     description:    document.getElementById('questDescription').value.trim(),
     type:           document.getElementById('questType').value,
@@ -217,9 +245,7 @@ window.saveQuest = async function() {
     closeModal('questModal');
     showToast(editId ? 'Quest atualizada!' : 'Quest criada!', 'success');
     await loadQuests();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
+  } catch (err) { showToast(err.message, 'error'); }
 };
 
 window.toggleQuest = async function(id, active) {
@@ -243,65 +269,82 @@ async function loadMaps() {
     if (!maps.length) { list.innerHTML = '<div class="empty-state"><i class="fas fa-map"></i><h3>Nenhum mapa criado</h3></div>'; return; }
     list.innerHTML = maps.map(m => `
       <div class="admin-item">
-        <span style="font-size:1.5rem">${m.icon_url || '🗺️'}</span>
+        <span style="font-size:1.5rem">${MAP_ICONS[m.type] || m.icon_url || '🗺️'}</span>
         <div style="flex:1">
           <div style="font-family:var(--font-title);color:var(--text-primary)">${m.title}</div>
-          <div style="font-size:.75rem;color:var(--text-secondary)">${m.type||''} · +${m.reward_coins||0} moedas · +${m.reward_xp||0} XP · ❤️ ${m.likes_count||0}</div>
+          <div style="font-size:.75rem;color:var(--text-secondary)">${m.type||'adventure'} · +${m.reward_coins||0} moedas · +${m.reward_xp||0} XP · ❤️ ${m.likes_count||0}</div>
         </div>
         <div class="admin-item-actions">
-          <button class="btn-edit btn-sm" onclick="openMapModal('${m.id}')"><i class="fas fa-edit"></i></button>
+          <button class="btn-edit btn-sm"   onclick="openMapAdminModal('${m.id}')"><i class="fas fa-edit"></i></button>
           <button class="btn-delete btn-sm" onclick="deleteMapConfirm('${m.id}')"><i class="fas fa-trash"></i></button>
         </div>
       </div>`).join('');
   } catch (err) { list.innerHTML = `<div class="empty-state"><h3>Erro: ${err.message}</h3></div>`; }
 }
 
-window.openMapModal = async function(mapId) {
-  document.getElementById('mapTitle').value = '';
-  document.getElementById('mapDescription').value = '';
+window.openMapAdminModal = async function(mapId) {
+  // Limpa
+  ['mapTitle','mapDescription','mapDownload','mapImageUrl','mapCustomIcon','mapEditId'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
   document.getElementById('mapType').value = 'adventure';
-  document.getElementById('mapCoins').value = 0;
-  document.getElementById('mapXp').value = 0;
-  document.getElementById('mapTokens').value = 0;
-  document.getElementById('mapDownload').value = '';
-  document.getElementById('mapIcon').value = '';
+  document.getElementById('mapCoins').value   = 0;
+  document.getElementById('mapXp').value      = 0;
+  document.getElementById('mapTokens').value  = 0;
   document.getElementById('mapImageRequired').checked = false;
-  document.getElementById('mapEditId').value = '';
   document.getElementById('mapModalTitle').innerHTML = '<i class="fas fa-map"></i> Novo Mapa';
+
+  // Atualiza preview de ícone
+  updateMapIconPreview('adventure');
 
   if (mapId) {
     try {
       const maps = await getAllMaps();
       const m = maps.find(x => x.id === mapId);
       if (m) {
-        document.getElementById('mapEditId').value = m.id;
-        document.getElementById('mapTitle').value = m.title;
-        document.getElementById('mapDescription').value = m.description || '';
-        document.getElementById('mapType').value = m.type || 'adventure';
-        document.getElementById('mapCoins').value = m.reward_coins || 0;
-        document.getElementById('mapXp').value = m.reward_xp || 0;
-        document.getElementById('mapTokens').value = m.reward_tokens || 0;
-        document.getElementById('mapDownload').value = m.download_url || '';
-        document.getElementById('mapIcon').value = m.icon_url || '';
+        document.getElementById('mapEditId').value        = m.id;
+        document.getElementById('mapTitle').value         = m.title;
+        document.getElementById('mapDescription').value   = m.description || '';
+        document.getElementById('mapType').value          = m.type || 'adventure';
+        document.getElementById('mapCoins').value         = m.reward_coins  || 0;
+        document.getElementById('mapXp').value            = m.reward_xp     || 0;
+        document.getElementById('mapTokens').value        = m.reward_tokens || 0;
+        document.getElementById('mapDownload').value      = m.download_url  || '';
+        document.getElementById('mapImageUrl').value      = m.image_url     || '';
+        document.getElementById('mapCustomIcon').value    = m.icon_url && !MAP_ICONS[m.type] ? m.icon_url : '';
         document.getElementById('mapImageRequired').checked = m.image_required;
         document.getElementById('mapModalTitle').innerHTML = '<i class="fas fa-edit"></i> Editar Mapa';
+        updateMapIconPreview(m.type || 'adventure', m.icon_url);
       }
     } catch (e) {}
   }
   openModal('mapModal');
 };
 
+// Retrocompatibilidade: o home.html chama openMapModal() mas no admin usamos openMapAdminModal()
+window.openMapModal = window.openMapAdminModal;
+
+function updateMapIconPreview(type, customIcon) {
+  const preview = document.getElementById('mapIconPreview');
+  if (!preview) return;
+  const icon = customIcon || MAP_ICONS[type] || '🗺️';
+  preview.textContent = icon;
+}
+
 window.saveMap = async function() {
-  const editId = document.getElementById('mapEditId').value;
+  const editId  = document.getElementById('mapEditId').value;
+  const mapType = document.getElementById('mapType').value;
+  const customIcon = document.getElementById('mapCustomIcon')?.value?.trim();
   const data = {
     title:          document.getElementById('mapTitle').value.trim(),
     description:    document.getElementById('mapDescription').value.trim(),
-    type:           document.getElementById('mapType').value,
+    type:           mapType,
     reward_coins:   parseInt(document.getElementById('mapCoins').value) || 0,
     reward_xp:      parseInt(document.getElementById('mapXp').value) || 0,
     reward_tokens:  parseInt(document.getElementById('mapTokens').value) || 0,
     download_url:   document.getElementById('mapDownload').value.trim() || null,
-    icon_url:       document.getElementById('mapIcon').value.trim() || null,
+    image_url:      document.getElementById('mapImageUrl')?.value?.trim() || null,
+    icon_url:       customIcon || MAP_ICONS[mapType] || null,
     image_required: document.getElementById('mapImageRequired').checked
   };
   if (!data.title) { showToast('Título é obrigatório', 'warning'); return; }
@@ -320,23 +363,35 @@ window.deleteMapConfirm = async function(id) {
   catch (err) { showToast(err.message, 'error'); }
 };
 
+// Atualiza ícone ao trocar tipo
+window.onMapTypeChange = function() {
+  const mapType = document.getElementById('mapType').value;
+  updateMapIconPreview(mapType, document.getElementById('mapCustomIcon')?.value?.trim());
+};
+
+window.onMapCustomIconChange = function() {
+  const mapType    = document.getElementById('mapType').value;
+  const customIcon = document.getElementById('mapCustomIcon')?.value?.trim();
+  updateMapIconPreview(mapType, customIcon);
+};
+
 // ── ACHIEVEMENTS ──────────────────────────────────────────────
 async function loadAchievements() {
   const list = document.getElementById('achievementsList');
   if (!list) return;
   list.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i></div>';
   try {
-    const achs = await getAllAchievements();
+    const achs = await getAllAchievements();   // corrigido: não desestrutura
     if (!achs.length) { list.innerHTML = '<div class="empty-state"><i class="fas fa-medal"></i><h3>Nenhuma conquista criada</h3></div>'; return; }
     list.innerHTML = achs.map(a => `
       <div class="admin-item">
         <span style="font-size:1.5rem">${a.icon_url || '🏅'}</span>
         <div style="flex:1">
           <div style="font-family:var(--font-title);color:var(--text-primary)">${a.title}</div>
-          <div style="font-size:.75rem;color:var(--text-secondary)">${a.description||''} · ${a.quests_required||0} quests · Nv${a.level_required||0}+</div>
+          <div style="font-size:.75rem;color:var(--text-secondary)">${a.description||''} · ${a.quests_required||0} quests · Nível ${a.level_required||0}+</div>
         </div>
         <div class="admin-item-actions">
-          <button class="btn-edit btn-sm" onclick="openAchievementModal('${a.id}')"><i class="fas fa-edit"></i></button>
+          <button class="btn-edit btn-sm"   onclick="openAchievementModal('${a.id}')"><i class="fas fa-edit"></i></button>
           <button class="btn-delete btn-sm" onclick="deleteAchievementConfirm('${a.id}')"><i class="fas fa-trash"></i></button>
         </div>
       </div>`).join('');
@@ -344,9 +399,11 @@ async function loadAchievements() {
 }
 
 window.openAchievementModal = async function(achId) {
-  ['achTitle','achDescription','achIcon','achCategory','achLevel','achQuests','achCoins','achXp','achTokens','achEditId'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = id.includes('Level')||id.includes('Quests')||id.includes('Coins')||id.includes('Xp')||id.includes('Tokens') ? '0' : '';
+  ['achTitle','achDescription','achIcon','achCategory','achEditId'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  ['achLevel','achQuests','achCoins','achXp','achTokens'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '0';
   });
   document.getElementById('achievementModalTitle').innerHTML = '<i class="fas fa-medal"></i> Nova Conquista';
 
@@ -355,16 +412,16 @@ window.openAchievementModal = async function(achId) {
       const achs = await getAllAchievements();
       const a = achs.find(x => x.id === achId);
       if (a) {
-        document.getElementById('achEditId').value = a.id;
-        document.getElementById('achTitle').value = a.title;
-        document.getElementById('achDescription').value = a.description || '';
-        document.getElementById('achIcon').value = a.icon_url || '';
-        document.getElementById('achCategory').value = a.category || '';
-        document.getElementById('achLevel').value = a.level_required || 0;
-        document.getElementById('achQuests').value = a.quests_required || 0;
-        document.getElementById('achCoins').value = a.reward_coins || 0;
-        document.getElementById('achXp').value = a.reward_xp || 0;
-        document.getElementById('achTokens').value = a.reward_tokens || 0;
+        document.getElementById('achEditId').value     = a.id;
+        document.getElementById('achTitle').value      = a.title;
+        document.getElementById('achDescription').value= a.description || '';
+        document.getElementById('achIcon').value       = a.icon_url || '';
+        document.getElementById('achCategory').value   = a.category || '';
+        document.getElementById('achLevel').value      = a.level_required  || 0;
+        document.getElementById('achQuests').value     = a.quests_required || 0;
+        document.getElementById('achCoins').value      = a.reward_coins    || 0;
+        document.getElementById('achXp').value         = a.reward_xp       || 0;
+        document.getElementById('achTokens').value     = a.reward_tokens   || 0;
         document.getElementById('achievementModalTitle').innerHTML = '<i class="fas fa-edit"></i> Editar Conquista';
       }
     } catch (e) {}
@@ -379,10 +436,10 @@ window.saveAchievement = async function() {
     description:     document.getElementById('achDescription').value.trim(),
     icon_url:        document.getElementById('achIcon').value.trim() || null,
     category:        document.getElementById('achCategory').value.trim() || null,
-    level_required:  parseInt(document.getElementById('achLevel').value) || 0,
+    level_required:  parseInt(document.getElementById('achLevel').value)  || 0,
     quests_required: parseInt(document.getElementById('achQuests').value) || 0,
-    reward_coins:    parseInt(document.getElementById('achCoins').value) || 0,
-    reward_xp:       parseInt(document.getElementById('achXp').value) || 0,
+    reward_coins:    parseInt(document.getElementById('achCoins').value)  || 0,
+    reward_xp:       parseInt(document.getElementById('achXp').value)     || 0,
     reward_tokens:   parseInt(document.getElementById('achTokens').value) || 0
   };
   if (!data.title) { showToast('Título é obrigatório', 'warning'); return; }
@@ -405,35 +462,57 @@ window.deleteAchievementConfirm = async function(id) {
 async function loadUsers() {
   const list = document.getElementById('usersList');
   if (!list) return;
-  list.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i></div>';
+  list.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando usuários…</h3></div>';
   try {
     const users = await getAllUsers();
-    list.innerHTML = users.map(u => `
-      <div class="admin-item">
-        <div class="user-avatar" style="width:38px;height:38px;border-radius:50%;background:var(--gold-dark);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--bg-primary);flex-shrink:0">${(u.nickname||'?')[0].toUpperCase()}</div>
-        <div style="flex:1">
-          <div style="font-family:var(--font-title);color:var(--text-primary)">${u.nickname} <span style="font-size:.7rem;color:${u.role==='admin'?'var(--purple-light)':'var(--text-muted)'}">[${u.role}]</span></div>
-          <div style="font-size:.75rem;color:var(--text-secondary)">${u.email} · Nv${u.level} · ${(u.coins||0).toLocaleString('pt-BR')} moedas</div>
+    if (!users.length) {
+      list.innerHTML = '<div class="empty-state"><i class="fas fa-users"></i><h3>Nenhum usuário encontrado</h3><p>Os usuários aparecem aqui após se cadastrarem.</p></div>';
+      return;
+    }
+    list.innerHTML = users.map(u => {
+      const displayName = u.profile_nickname || u.nickname || '?';
+      const roleLabel   = u.profile_role || ROLE_LABELS[u.role] || u.role;
+      return `<div class="admin-item" id="user-row-${u.id}">
+        <div class="user-avatar" style="width:38px;height:38px;border-radius:50%;background:var(--gold-dark);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--bg-primary);flex-shrink:0">
+          ${u.icon_url ? `<img src="${u.icon_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none'">` : displayName[0].toUpperCase()}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:var(--font-title);color:var(--text-primary)">${displayName}
+            <span style="font-size:.7rem;color:${u.role==='admin'?'var(--purple-light)':'var(--text-muted)'}">[${roleLabel}]</span>
+          </div>
+          <div style="font-size:.75rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.email} · Nível ${u.level} · ${(u.coins||0).toLocaleString('pt-BR')} moedas · ${(u.tokens||0).toLocaleString('pt-BR')} tokens</div>
         </div>
         <div class="admin-item-actions">
-          ${u.role !== 'admin'
-            ? `<button class="btn-edit btn-sm" onclick="makeAdmin('${u.id}','${u.nickname}')">Tornar Admin</button>`
-            : `<button class="btn-danger btn-sm" onclick="removeAdmin('${u.id}','${u.nickname}')">Remover Admin</button>`}
+          <button class="btn-edit btn-sm" onclick="openEditUserModal('${u.id}','${displayName}','${u.role}','${u.profile_role||roleLabel}')">
+            <i class="fas fa-edit"></i> Editar
+          </button>
         </div>
-      </div>`).join('');
-  } catch (err) { list.innerHTML = `<div class="empty-state"><h3>Erro: ${err.message}</h3></div>`; }
+      </div>`;
+    }).join('');
+  } catch (err) {
+    list.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${err.message}</h3><p>Verifique se a policy RLS "users_select" permite que admins leiam todos os usuários.</p></div>`;
+  }
 }
 
-window.makeAdmin = async function(id, name) {
-  if (!confirm(`Tornar ${name} admin?`)) return;
-  try { await setUserRole(id, 'admin'); showToast(`${name} agora é admin!`, 'success'); await loadUsers(); }
-  catch (err) { showToast(err.message, 'error'); }
+window.openEditUserModal = function(userId, displayName, role, profileRole) {
+  document.getElementById('editUserId').value          = userId;
+  document.getElementById('editUserName').textContent  = displayName;
+  document.getElementById('editUserRole').value        = role;
+  document.getElementById('editUserProfileRole').value = profileRole;
+  openModal('editUserModal');
 };
 
-window.removeAdmin = async function(id, name) {
-  if (!confirm(`Remover admin de ${name}?`)) return;
-  try { await setUserRole(id, 'user'); showToast(`Admin removido de ${name}`, 'info'); await loadUsers(); }
-  catch (err) { showToast(err.message, 'error'); }
+window.saveUserEdit = async function() {
+  const id          = document.getElementById('editUserId').value;
+  const role        = document.getElementById('editUserRole').value;
+  const profileRole = document.getElementById('editUserProfileRole').value.trim();
+  if (!id) return;
+  try {
+    await setUserRole(id, role, profileRole || ROLE_LABELS[role] || role);
+    showToast('Usuário atualizado!', 'success');
+    closeModal('editUserModal');
+    await loadUsers();
+  } catch (err) { showToast(err.message, 'error'); }
 };
 
 // ── RESETS ────────────────────────────────────────────────────
@@ -458,4 +537,3 @@ function setupResetButtons() {
 // ── MODAL HELPERS ─────────────────────────────────────────────
 window.openModal  = (id) => document.getElementById(id)?.classList.add('open');
 window.closeModal = (id) => document.getElementById(id)?.classList.remove('open');
-function clearForm(ids) { ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; }); }
