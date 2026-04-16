@@ -127,8 +127,8 @@ export function renderUserInSidebar(profile) {
   const xpFill   = document.getElementById('sidebarXpFill');
   const xpLabel  = document.getElementById('sidebarXpLabel');
 
-  if (nickname) nickname.textContent = profile.nickname || profile.username || 'Aventureiro';
-  if (role)     role.textContent     = profile.role === 'admin' ? '⚔ Admin' : '🗡 Usuário';
+  if (nickname) nickname.textContent = profile.profile_nickname || profile.nickname || profile.username || 'Aventureiro';
+  if (role)     role.textContent     = profile.profile_role || (profile.role === 'admin' ? '⚔ Admin' : '🗡 Marmotinha');
   if (avatar) {
     if (profile.icon_url) {
       avatar.textContent = '';
@@ -138,7 +138,7 @@ export function renderUserInSidebar(profile) {
       avatar.textContent = (profile.nickname || 'A')[0].toUpperCase();
     }
   }
-  if (levelBadge) levelBadge.textContent = `Nv ${profile.level || 1}`;
+  if (levelBadge) levelBadge.textContent = `${profile.level || 1}`;
   if (coins)      coins.textContent      = (profile.coins || 0).toLocaleString('pt-BR');
 
   // XP bar
