@@ -57,7 +57,9 @@
       <!-- SUBMISSÕES -->
       <div class="admin-panel active" id="panel-submissions">
         <div class="page-header"><h2 class="page-title"><i class="fas fa-inbox"></i> Submissões Pendentes</h2></div>
-        <div class="submissions-list" id="submissionsList"><div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div></div>
+        <div class="submissions-list" id="submissionsList">
+          <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
+        </div>
       </div>
 
       <!-- QUESTS -->
@@ -73,7 +75,7 @@
       <div class="admin-panel" id="panel-maps">
         <div class="page-header">
           <h2 class="page-title"><i class="fas fa-map"></i> Gerenciar Mapas</h2>
-          <button class="btn-primary" onclick="openMapModal()"><i class="fas fa-plus"></i> Novo Mapa</button>
+          <button class="btn-primary" onclick="openMapAdminModal()"><i class="fas fa-plus"></i> Novo Mapa</button>
         </div>
         <div class="admin-list" id="mapsList"></div>
       </div>
@@ -111,6 +113,8 @@
     </div>
   </main>
 
+  <!-- ======================= MODALS ======================= -->
+
   <!-- MODAL: QUEST -->
   <div class="modal-overlay" id="questModal">
     <div class="modal-box">
@@ -120,7 +124,7 @@
       </div>
       <input type="hidden" id="questEditId"/>
       <div class="form-group"><label>Título *</label><input type="text" id="questTitle" placeholder="Nome da quest" maxlength="100"/></div>
-      <div class="form-group"><label>Descrição</label><textarea id="questDescription" placeholder="Descreva a quest..."></textarea></div>
+      <div class="form-group"><label>Descrição</label><textarea id="questDescription" placeholder="Descreva a quest…"></textarea></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group">
           <label>Tipo *</label>
@@ -136,7 +140,7 @@
         <div class="form-group"><label>Recompensa XP</label><input type="number" id="questXp" value="0" min="0"/></div>
       </div>
       <div class="form-group"><label>Ícone (emoji)</label><input type="text" id="questIcon" placeholder="⚔️" maxlength="10"/></div>
-      <div class="form-group" style="display:flex;align-items:center;gap:12px">
+      <div class="form-group" style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem">
           <input type="checkbox" id="questActive" checked style="accent-color:var(--gold);width:16px;height:16px"/> Quest Ativa
         </label>
@@ -146,30 +150,65 @@
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('questModal')">Cancelar</button>
-        <button class="btn-primary" id="saveQuestBtn" onclick="saveQuest()"><i class="fas fa-save"></i> Salvar</button>
+        <button class="btn-primary" onclick="saveQuest()"><i class="fas fa-save"></i> Salvar</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: MAPA -->
+  <!-- MODAL: MAPA (com seletor de tipo + ícone + URL de imagem) -->
   <div class="modal-overlay" id="mapModal">
-    <div class="modal-box">
+    <div class="modal-box" style="max-width:560px">
       <div class="modal-header">
         <h3 class="modal-title" id="mapModalTitle"><i class="fas fa-map"></i> Novo Mapa</h3>
         <button class="modal-close" onclick="closeModal('mapModal')"><i class="fas fa-times"></i></button>
       </div>
       <input type="hidden" id="mapEditId"/>
-      <div class="form-group"><label>Título *</label><input type="text" id="mapTitle" placeholder="Nome do mapa"/></div>
-      <div class="form-group"><label>Descrição</label><textarea id="mapDescription"></textarea></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group"><label>Tipo</label><select id="mapType"><option value="adventure">Aventura</option><option value="dungeon">Dungeon</option><option value="city">Cidade</option><option value="other">Outro</option></select></div>
-        <div class="form-group"><label>Ícone (emoji)</label><input type="text" id="mapIcon" placeholder="🗺️" maxlength="10"/></div>
-        <div class="form-group"><label>Recompensa Moedas</label><input type="number" id="mapCoins" value="0" min="0"/></div>
-        <div class="form-group"><label>Recompensa XP</label><input type="number" id="mapXp" value="0" min="0"/></div>
-        <div class="form-group"><label>Recompensa Tokens</label><input type="number" id="mapTokens" value="0" min="0"/></div>
+      <div class="form-group"><label>Título *</label><input type="text" id="mapTitle" placeholder="Nome do mapa" maxlength="80"/></div>
+      <div class="form-group"><label>Descrição</label><textarea id="mapDescription" placeholder="Descreva o mapa…"></textarea></div>
+
+      <!-- Tipo + preview de ícone -->
+      <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-bottom:12px">
+        <div class="form-group" style="margin:0">
+          <label>Tipo de Mapa</label>
+          <select id="mapType" onchange="onMapTypeChange()">
+            <option value="adventure">🗺️ Aventura</option>
+            <option value="pvp">⚔️ PvP</option>
+            <option value="city">🏙️ Cidade</option>
+            <option value="dungeon">🏰 Dungeon</option>
+            <option value="lucky">🍀 Lucky Block</option>
+            <option value="event">🎉 Evento</option>
+            <option value="survival">🌿 Survival</option>
+            <option value="parkour">🏃 Parkour</option>
+            <option value="custom">⭐ Customizado</option>
+          </select>
+        </div>
+        <div style="width:56px;height:56px;border-radius:var(--radius-md);background:var(--bg-input);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.8rem" id="mapIconPreview">🗺️</div>
       </div>
-      <div class="form-group"><label>URL de Download</label><input type="url" id="mapDownload" placeholder="https://..."/></div>
-      <div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem"><input type="checkbox" id="mapImageRequired" style="accent-color:var(--gold);width:16px;height:16px"/> Exige Comprovante para recompensa</label></div>
+
+      <!-- Ícone customizado (emoji ou URL curta) -->
+      <div class="form-group">
+        <label>Ícone Customizado <small>(emoji ou URL — sobrepõe o tipo)</small></label>
+        <input type="text" id="mapCustomIcon" placeholder="🗺️  ou  https://…icon.png" oninput="onMapCustomIconChange()"/>
+      </div>
+
+      <!-- URL da imagem do mapa -->
+      <div class="form-group">
+        <label>URL da Imagem do Mapa <small>(screenshot, capa)</small></label>
+        <input type="url" id="mapImageUrl" placeholder="https://…imagem.jpg"/>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div class="form-group"><label>Moedas</label><input type="number" id="mapCoins" value="0" min="0"/></div>
+        <div class="form-group"><label>XP</label><input type="number" id="mapXp" value="0" min="0"/></div>
+        <div class="form-group"><label>Tokens</label><input type="number" id="mapTokens" value="0" min="0"/></div>
+      </div>
+      <div class="form-group"><label>URL de Download</label><input type="url" id="mapDownload" placeholder="https://…"/></div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem">
+          <input type="checkbox" id="mapImageRequired" style="accent-color:var(--gold);width:16px;height:16px"/>
+          Exige Comprovante para recompensa
+        </label>
+      </div>
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('mapModal')">Cancelar</button>
         <button class="btn-primary" onclick="saveMap()"><i class="fas fa-save"></i> Salvar</button>
@@ -203,6 +242,39 @@
     </div>
   </div>
 
+  <!-- MODAL: EDITAR USUÁRIO (role + profile_role) -->
+  <div class="modal-overlay" id="editUserModal">
+    <div class="modal-box" style="max-width:420px">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fas fa-user-edit"></i> Editar Usuário</h3>
+        <button class="modal-close" onclick="closeModal('editUserModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="editUserId"/>
+      <p style="color:var(--text-secondary);font-size:.85rem;margin-bottom:16px">
+        Usuário: <strong id="editUserName" style="color:var(--text-primary)"></strong>
+      </p>
+      <div class="form-group">
+        <label>Função no Sistema</label>
+        <select id="editUserRole">
+          <option value="user">Usuário Normal</option>
+          <option value="moderator">Moderador</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Cargo Exibido <small>(aparece no perfil)</small></label>
+        <input type="text" id="editUserProfileRole" placeholder="Ex: Marmotinha, VIP, Builder…" maxlength="40"/>
+        <small style="color:var(--text-muted);margin-top:4px;display:block">
+          Sugestões: Marmotinha · Builder · VIP · Herói · Fundador · Moderador
+        </small>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('editUserModal')">Cancelar</button>
+        <button class="btn-primary" onclick="saveUserEdit()"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: VER COMPROVANTE -->
   <div class="modal-overlay" id="proofModal">
     <div class="modal-box" style="max-width:700px">
@@ -210,7 +282,10 @@
         <h3 class="modal-title"><i class="fas fa-image"></i> Comprovante</h3>
         <button class="modal-close" onclick="closeModal('proofModal')"><i class="fas fa-times"></i></button>
       </div>
-      <div style="text-align:center"><img id="proofModalImg" src="" alt="Comprovante" style="max-width:100%;max-height:70vh;border-radius:var(--radius-md);border:1px solid var(--border)"/></div>
+      <div style="text-align:center">
+        <img id="proofModalImg" src="" alt="Comprovante"
+          style="max-width:100%;max-height:70vh;border-radius:var(--radius-md);border:1px solid var(--border)"/>
+      </div>
     </div>
   </div>
 

@@ -358,5 +358,191 @@ marmota-rpg-2.io/
 
 ---
 
+## 13. Correções v2 — Erros de Produção
+
+Esta seção documenta todos os erros corrigidos na atualização v2.
+
+---
+
+### 🐛 FK Violation: `submissions_user_id_fkey`
+
+**Erro:** `insert or update on table "submissions" violates foreign key constraint "submissions_user_id_fkey"`
+
+**Causa:** O usuário está autenticado no Auth mas ainda não tem registro na tabela `users`.
+
+**Correção aplicada:**
+1. Trigger `handle_new_user()` criado — cria o perfil automaticamente ao registrar no Auth.
+2. A função `createSubmission()` agora verifica se o perfil existe antes de inserir.
+3. A função `signIn()` garante criação do perfil se o trigger falhou.
+
+**Se o erro persistir**, execute no SQL Editor:
+```sql
+-- Cria perfil para usuário que já está no Auth mas não na tabela users
+INSERT INTO users (id, email, nickname, profile_nickname, role, profile_role, level, xp, coins, tokens)
+SELECT 
+  au.id,
+  au.email,
+  split_part(au.email, '@', 1) AS nickname,
+  split_part(au.email, '@', 1) AS profile_nickname,
+  'user',
+  'Marmotinha',
+  1, 0, 0, 0
+FROM auth.users au
+LEFT JOIN public.users pu ON pu.id = au.id
+WHERE pu.id IS NULL;
+```
+
+---
+
+### 🐛 RLS: `new row violates row-level security policy`
+
+**Tabelas afetadas:** `quests`, `maps`, `achievements`, `user_badges`
+
+**Causa:** A policy antiga usava `FOR ALL` mas o INSERT precisava de uma policy separada.
+
+**Correção aplicada:**
+- Policies separadas para SELECT, INSERT, UPDATE e DELETE.
+- Função helper `is_admin()` criada com `SECURITY DEFINER` para evitar recursão.
+- Execute o `setup.sql` v2 para aplicar as políticas corrigidas.
+
+**Para verificar as policies ativas:**
+```sql
+SELECT tablename, policyname, cmd, qual 
+FROM pg_policies 
+WHERE schemaname = 'public'
+ORDER BY tablename, cmd;
+```
+
+---
+
+### 🐛 Profile Edit: `Cannot coerce the result to a single JSON object`
+
+**Causa:** `updateUserProfile()` usava `.select().single()` — quando a atualização afeta 0 linhas o Supabase lança esse erro.
+
+**Correção aplicada:** Removido `.single()`, retorna `data?.[0] ?? null` em vez disso.
+
+---
+
+### 🐛 Lista de usuários vazia no Admin
+
+**Causa:** A RLS policy de `users` só permitia ver o próprio perfil. Admins precisam ver todos.
+
+**Correção aplicada:** Policy `users_select` agora permite qualquer usuário autenticado ler todos os registros. A função `is_admin()` permite updates em qualquer usuário.
+
+---
+
+### 🐛 Email rate limit exceeded / E-mail inválido
+
+**Causa:** Supabase tem limite de e-mails por hora no plano gratuito (padrão 3/hora em dev).
+
+**Solução:**
+1. Vá em **Authentication > Settings**
+2. Desative **"Enable email confirmations"** (para desenvolvimento)
+3. Em produção: configure um servidor SMTP próprio em **Authentication > Settings > SMTP Settings**:
+   - Use SendGrid, Resend, Mailgun ou similar
+   - Aumenta o limite para centenas de e-mails/hora
+4. **Para criar usuários de teste sem e-mail:**
+   ```sql
+   -- Cria usuário diretamente via SQL (sem e-mail de confirmação)
+   -- Use Authentication > Users > "Add user" no painel Supabase
+   ```
+   Ou via painel: **Authentication > Users > "+ Add user"** → preencha e-mail e senha.
+
+---
+
+### 🐛 Criação automática de usuário no cadastro
+
+**Como funciona no v2:**
+- O trigger `on_auth_user_created` cria automaticamente o registro em `public.users` quando alguém se registra.
+- O nickname base é derivado do e-mail (parte antes do @).
+- Colisões de nickname são resolvidas adicionando um número.
+- O usuário pode depois editar seu **Nome de Exibição** (`profile_nickname`) no perfil.
+
+**Para verificar se o trigger está ativo:**
+```sql
+SELECT trigger_name, event_manipulation, action_statement
+FROM information_schema.triggers
+WHERE trigger_name = 'on_auth_user_created';
+```
+
+---
+
+### 🐛 Prefixo "Nv" removido
+
+**Correção:** O nível agora exibe apenas o número (ex: `15` em vez de `Nv 15`).  
+- Sidebar: badge de nível mostra só o número  
+- Perfil: campo de nível mostra só o número  
+- Ranking: coluna de nível mostra só o número  
+
+---
+
+### ✨ Novas funcionalidades v2
+
+#### Nome de Exibição (`profile_nickname`)
+- Usuários podem editar seu **Nome de Exibição** no Perfil sem alterar o `nickname` único de sistema.
+- O ranking usa `profile_nickname` (ou `nickname` como fallback).
+
+#### Cargo Customizável (`profile_role`)
+- Admins podem definir o cargo exibido de cada usuário (ex: "Marmotinha", "Builder", "VIP", "Fundador").
+- Acesse: **Admin > Usuários > Editar**.
+
+#### Toggle Moedas / Tokens no Ranking
+- Na página de Ranking há dois botões para alternar entre ranking de **Moedas** e **Tokens**.
+
+#### Seletor de Ícones para Mapas
+- O modal de criação/edição de mapa tem seletor de tipo com ícone automático:
+  - 🗺️ Aventura · ⚔️ PvP · 🏙️ Cidade · 🏰 Dungeon · 🍀 Lucky Block · 🎉 Evento · 🌿 Survival · 🏃 Parkour · ⭐ Customizado
+- Campo de ícone customizado (emoji ou URL).
+- Campo de URL de imagem do mapa (screenshot/capa).
+
+---
+
+## 14. Recriar Tabelas do Zero
+
+Se precisar resetar tudo:
+
+```sql
+-- ⚠️ CUIDADO: apaga TODOS os dados!
+DROP TABLE IF EXISTS user_badges      CASCADE;
+DROP TABLE IF EXISTS ranking_history  CASCADE;
+DROP TABLE IF EXISTS submissions      CASCADE;
+DROP TABLE IF EXISTS achievements     CASCADE;
+DROP TABLE IF EXISTS maps             CASCADE;
+DROP TABLE IF EXISTS quests           CASCADE;
+DROP TABLE IF EXISTS users            CASCADE;
+DROP TRIGGER  IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS handle_new_user();
+DROP FUNCTION IF EXISTS is_admin();
+DROP FUNCTION IF EXISTS increment_map_likes(UUID);
+DROP FUNCTION IF EXISTS update_updated_at();
+
+-- Em seguida, execute o supabase/setup.sql novamente
+```
+
+---
+
+## 15. Inserir Dados de Teste
+
+Após executar o `setup.sql`, para inserir usuários de teste via painel:
+
+1. Vá em **Authentication > Users > "+ Add user"**
+2. Preencha e-mail e senha (mínimo 6 caracteres)
+3. O trigger criará o registro em `users` automaticamente
+
+Para tornar o usuário admin:
+```sql
+UPDATE users 
+SET role = 'admin', profile_role = 'Admin'
+WHERE email = 'seu@email.com';
+```
+
+Para inserir um mapa de teste:
+```sql
+INSERT INTO maps (title, description, type, icon_url, reward_coins, reward_xp)
+VALUES ('Dungeon do Dragão', 'Enfrente o dragão ancião neste mapa épico', 'dungeon', '🏰', 200, 150);
+```
+
+---
+
 > 🛡️ **RPG Quests v2** — Migrado de Firebase para Supabase  
 > Desenvolvido por KayhamCristoffer

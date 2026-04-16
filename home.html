@@ -23,11 +23,12 @@
     <div class="sidebar-user">
       <div class="user-avatar-wrap">
         <div class="user-avatar" id="sidebarAvatar">?</div>
-        <div class="user-level-badge" id="sidebarLevelBadge">Nv 1</div>
+        <!-- Sem prefixo "Nv" — só o número do nível -->
+        <div class="user-level-badge" id="sidebarLevelBadge">1</div>
       </div>
       <div class="user-info">
         <span class="user-name" id="sidebarNickname">Aventureiro</span>
-        <span class="user-role" id="sidebarRole">Usuário</span>
+        <span class="user-role" id="sidebarRole">Marmotinha</span>
       </div>
     </div>
     <div class="sidebar-xp">
@@ -81,7 +82,10 @@
         <div class="period-card"><i class="fas fa-calendar-week"></i><span class="period-value" id="weeklyCoins">0</span><span class="period-label">Moedas esta Semana</span></div>
         <div class="period-card"><i class="fas fa-calendar-alt"></i><span class="period-value" id="monthlyCoins">0</span><span class="period-label">Moedas este Mês</span></div>
       </div>
-      <div class="badges-card"><h3><i class="fas fa-medal"></i> Conquistas Desbloqueadas</h3><div class="badges-grid" id="badgesGrid"><p class="no-badges">Nenhuma conquista ainda. Complete quests para desbloquear!</p></div></div>
+      <div class="badges-card">
+        <h3><i class="fas fa-medal"></i> Conquistas Desbloqueadas</h3>
+        <div class="badges-grid" id="badgesGrid"><p class="no-badges">Nenhuma conquista ainda. Complete quests para desbloquear!</p></div>
+      </div>
     </div>
 
     <!-- PAGE: QUESTS -->
@@ -89,7 +93,9 @@
       <div class="page-header">
         <h2 class="page-title"><i class="fas fa-scroll"></i> Quests Disponíveis</h2>
       </div>
-      <div id="maintenanceBanner" class="maintenance-banner" style="display:none"><i class="fas fa-tools"></i><span>Sistema em manutenção (01:30–02:00). Submissões temporariamente bloqueadas.</span></div>
+      <div id="maintenanceBanner" class="maintenance-banner" style="display:none">
+        <i class="fas fa-tools"></i><span>Sistema em manutenção (01:30–02:00). Submissões temporariamente bloqueadas.</span>
+      </div>
       <div class="filter-bar">
         <button class="filter-btn active" data-filter="all"><i class="fas fa-th"></i> Todas</button>
         <button class="filter-btn" data-filter="daily"><i class="fas fa-sun"></i> Diárias</button>
@@ -97,13 +103,17 @@
         <button class="filter-btn" data-filter="monthly"><i class="fas fa-calendar-alt"></i> Mensais</button>
         <button class="filter-btn" data-filter="event"><i class="fas fa-star"></i> Eventos</button>
       </div>
-      <div class="quests-grid" id="questsGrid"><div class="empty-state"><i class="fas fa-scroll"></i><h3>Carregando quests…</h3></div></div>
+      <div class="quests-grid" id="questsGrid">
+        <div class="empty-state"><i class="fas fa-scroll"></i><h3>Carregando quests…</h3></div>
+      </div>
     </div>
 
     <!-- PAGE: MY QUESTS -->
     <div class="page" id="page-my-quests">
       <div class="page-header"><h2 class="page-title"><i class="fas fa-tasks"></i> Minhas Quests</h2></div>
-      <div class="my-quests-list" id="myQuestsList"><div class="empty-state"><i class="fas fa-tasks"></i><h3>Carregando…</h3></div></div>
+      <div class="my-quests-list" id="myQuestsList">
+        <div class="empty-state"><i class="fas fa-tasks"></i><h3>Carregando…</h3></div>
+      </div>
     </div>
 
     <!-- PAGE: MAPS -->
@@ -112,23 +122,41 @@
       <div class="filter-bar" id="mapsFilterBar">
         <button class="filter-btn active" data-filter="all"><i class="fas fa-th"></i> Todos</button>
         <button class="filter-btn" data-filter="adventure"><i class="fas fa-mountain"></i> Aventura</button>
+        <button class="filter-btn" data-filter="pvp"><i class="fas fa-swords"></i> PvP</button>
         <button class="filter-btn" data-filter="dungeon"><i class="fas fa-dungeon"></i> Dungeon</button>
         <button class="filter-btn" data-filter="city"><i class="fas fa-city"></i> Cidade</button>
+        <button class="filter-btn" data-filter="lucky"><i class="fas fa-clover"></i> Lucky Block</button>
       </div>
-      <div class="maps-grid" id="mapsGrid"><div class="empty-state"><i class="fas fa-map"></i><h3>Carregando mapas…</h3></div></div>
+      <div class="maps-grid" id="mapsGrid">
+        <div class="empty-state"><i class="fas fa-map"></i><h3>Carregando mapas…</h3></div>
+      </div>
     </div>
 
     <!-- PAGE: RANKING -->
     <div class="page" id="page-ranking">
-      <div class="page-header"><h2 class="page-title"><i class="fas fa-trophy"></i> Ranking</h2></div>
-      <div class="filter-bar">
-        <button class="filter-btn active" data-period="coins"><i class="fas fa-infinity"></i> Total</button>
+      <div class="page-header">
+        <h2 class="page-title"><i class="fas fa-trophy"></i> Ranking</h2>
+        <span id="rankingMetricLabel" class="supabase-badge">🪙 Moedas</span>
+      </div>
+
+      <!-- Filtro de período -->
+      <div class="filter-bar" style="margin-bottom:.5rem">
+        <button class="filter-btn active" data-period="total"><i class="fas fa-infinity"></i> Total</button>
         <button class="filter-btn" data-period="daily"><i class="fas fa-sun"></i> Diário</button>
         <button class="filter-btn" data-period="weekly"><i class="fas fa-calendar-week"></i> Semanal</button>
         <button class="filter-btn" data-period="monthly"><i class="fas fa-calendar-alt"></i> Mensal</button>
       </div>
+
+      <!-- Toggle Moedas / Tokens -->
+      <div class="filter-bar" style="margin-bottom:1.5rem">
+        <button class="filter-btn active" data-metric="coins"><i class="fas fa-coins"></i> Moedas</button>
+        <button class="filter-btn" data-metric="tokens"><i class="fas fa-gem"></i> Tokens</button>
+      </div>
+
       <div class="ranking-podium" id="rankingPodium"></div>
-      <div class="ranking-list" id="rankingList"><div class="empty-state"><i class="fas fa-trophy"></i><h3>Carregando ranking…</h3></div></div>
+      <div class="ranking-list" id="rankingList">
+        <div class="empty-state"><i class="fas fa-trophy"></i><h3>Carregando ranking…</h3></div>
+      </div>
     </div>
 
     <!-- PAGE: PROFILE -->
@@ -137,23 +165,29 @@
       <div class="profile-card">
         <div class="profile-avatar-wrap">
           <div class="profile-avatar" id="profileAvatar">?</div>
-          <div class="profile-level" id="profileLevel">Nv 1</div>
+          <!-- Nível sem "Nv" — só número -->
+          <div class="profile-level" id="profileLevel">1</div>
         </div>
         <div class="profile-details">
           <h2 id="profileNickname">Aventureiro</h2>
           <span class="profile-email" id="profileEmail"></span>
-          <span class="profile-role-badge" id="profileRole">Usuário</span>
+          <span class="profile-role-badge" id="profileRole">Marmotinha</span>
         </div>
       </div>
       <div class="profile-edit-card">
         <h3><i class="fas fa-edit"></i> Editar Perfil</h3>
         <div class="form-group">
-          <label>Nickname</label>
-          <input type="text" id="editNickname" placeholder="Seu nickname" maxlength="30"/>
+          <label><i class="fas fa-signature"></i> Nome de Exibição <small>(aparece no ranking e chat)</small></label>
+          <input type="text" id="editProfileNickname" placeholder="Seu apelido de exibição" maxlength="30"/>
         </div>
         <div class="form-group">
-          <label>URL do Avatar <small>(link de imagem)</small></label>
-          <input type="url" id="editAvatarUrl" placeholder="https://...imagem.png"/>
+          <label><i class="fas fa-image"></i> URL do Avatar <small>(link de imagem ou emoji)</small></label>
+          <input type="text" id="editAvatarUrl" placeholder="https://...imagem.png  ou  🐾"/>
+        </div>
+        <!-- Campo nickname técnico (somente leitura, apenas referência) -->
+        <div class="form-group">
+          <label style="opacity:.6"><i class="fas fa-at"></i> Nickname único <small>(não editável após o cadastro)</small></label>
+          <input type="text" id="editNickname" placeholder="nickname" readonly style="opacity:.5;cursor:not-allowed"/>
         </div>
         <button class="btn-primary" id="saveProfileBtn"><i class="fas fa-save"></i> Salvar</button>
       </div>
@@ -167,16 +201,18 @@
         <h3 class="modal-title"><i class="fas fa-upload"></i> Enviar Comprovante</h3>
         <button class="modal-close" id="closeSubmitModal"><i class="fas fa-times"></i></button>
       </div>
-      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">Envie um print ou foto como comprovante da quest concluída. Será analisado pelo admin.</p>
+      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">
+        Envie um print ou foto como comprovante. Será analisado pelo admin.
+      </p>
       <input type="hidden" id="submitQuestId"/>
       <div class="upload-area" id="uploadArea">
-        <input type="file" id="proofFile" accept="image/*"/>
+        <input type="file" id="proofFile" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"/>
         <i class="fas fa-cloud-upload-alt"></i>
         <p>Clique ou arraste a imagem aqui</p>
-        <small>JPEG, PNG – máx. 2MB</small>
+        <small>JPEG, PNG, GIF, WEBP – máx. 2MB</small>
       </div>
       <div class="upload-preview" id="uploadPreview" style="display:none">
-        <img id="previewImg" src="" alt="Preview"/>
+        <img id="previewImg" src="" alt="Preview" style="max-width:100%;border-radius:var(--radius-md)"/>
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" id="cancelSubmitModal">Cancelar</button>
@@ -192,16 +228,18 @@
         <h3 class="modal-title"><i class="fas fa-map-marked-alt"></i> Submeter Mapa</h3>
         <button class="modal-close" id="closeMapModal"><i class="fas fa-times"></i></button>
       </div>
-      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">Envie um screenshot do mapa utilizado.</p>
+      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">
+        Envie um screenshot do mapa utilizado.
+      </p>
       <input type="hidden" id="submitMapId"/>
       <div class="upload-area" id="mapUploadArea">
-        <input type="file" id="mapProofFile" accept="image/*"/>
+        <input type="file" id="mapProofFile" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"/>
         <i class="fas fa-cloud-upload-alt"></i>
         <p>Clique ou arraste a imagem aqui</p>
         <small>JPEG, PNG – máx. 2MB</small>
       </div>
       <div class="upload-preview" id="mapUploadPreview" style="display:none">
-        <img id="mapPreviewImg" src="" alt="Preview"/>
+        <img id="mapPreviewImg" src="" alt="Preview" style="max-width:100%;border-radius:var(--radius-md)"/>
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" id="cancelMapModal">Cancelar</button>
