@@ -1,61 +1,87 @@
-// ============================================================
-// SUPABASE DATABASE LAYER v2 - RPG Quests
-// Corrigido: FK constraints, RLS, profile update, achievements,
-//            ranking tokens/coins, auto-user, getAllAchievements
-// ============================================================
-import { sb, getCurrentUser } from './client.js';
+// ================================================================
+// SUPABASE DATABASE v4 — RPG Quests
+// Changelog v4:
+//  - emailRedirectTo always points to GitHub Pages
+//  - ensureProfile: robust upsert for existing auth users
+//  - setUserRole: uses service-level upsert workaround (admin bypass)
+//  - Quest proof: URL-based (prnt.sc), file upload only for map covers
+//  - image_required flag respected: false → URL proof, true → file upload
+//  - Cooldown: getNextReset returns ISO string for next 01:45 reset
+//  - submitMapByUser: image_url (URL, not base64)
+//  - approveMapSubmission: image_url propagated to maps table
+//  - getPendingMapSubmissions exported
+//  - MAP_TYPE_ICONS exported
+// ================================================================
+import { sb } from './client.js';
 import { ADMIN_UID } from './supabase-config.js';
+
+// ─── CONSTANTS ────────────────────────────────────────────────
+export const MAP_TYPE_ICONS = {
+  adventure: '🗺️', pvp: '⚔️', city: '🏙️', dungeon: '🏰',
+  lucky: '🍀', event: '🎉', survival: '🌿', parkour: '🏃', custom: '⭐'
+};
+
+// ─── UTILS internos ───────────────────────────────────────────
+function sanitizeNickname(email) {
+  return (email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20)) || 'user';
+}
+
+// Garante que o usuário autenticado tem um row na tabela users.
+// Chamado em signIn e em onAuthStateChange para cobrir usuários legados.
+export async function ensureProfile(user) {
+  if (!user) return;
+  try {
+    const { data: existing } = await sb
+      .from('users').select('id').eq('id', user.id).maybeSingle();
+    if (!existing) {
+      const nick = sanitizeNickname(user.email || 'user');
+      // Tenta inserir. Se outro processo já criou (race condition), ignora.
+      const { error } = await sb.from('users').upsert({
+        id: user.id,
+        email: user.email,
+        nickname: nick + '_' + Date.now().toString().slice(-4),
+        profile_nickname: nick,
+        role: 'user',
+        profile_role: 'Marmotinha',
+        level: 1, xp: 0, coins: 0, tokens: 0
+      }, { onConflict: 'id', ignoreDuplicates: true });
+      if (error) console.warn('ensureProfile upsert:', error.message);
+    }
+  } catch (e) {
+    console.warn('ensureProfile error:', e.message);
+  }
+}
 
 // ─── AUTH ─────────────────────────────────────────────────────
 
 export async function signUp(email, password, nickname) {
-  const { data, error } = await sb.auth.signUp({ email, password });
+  // Redireciona para o GitHub Pages correto após confirmação de e-mail
+  const redirectTo = window.location.hostname.includes('github.io')
+    ? 'https://kayhamcristoffer.github.io/marmota-rpg-2.io/index.html'
+    : `${window.location.origin}/index.html`;
+
+  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } });
   if (error) throw error;
   const user = data.user;
-  if (!user) throw new Error('Cadastro criado. Verifique seu e-mail para confirmar a conta.');
-
-  // O trigger handle_new_user() já cria o perfil automaticamente.
-  // Tentamos upsert para garantir o nickname customizado escolhido na tela.
-  // Se o trigger já inseriu, fazemos UPDATE; caso contrário INSERT.
-  const { error: upErr } = await sb.from('users').upsert({
-    id:               user.id,
-    email,
-    nickname,
-    username:         nickname,
-    profile_nickname: nickname,
-    role:             'user',
-    profile_role:     'Marmotinha',
-    level:            1,
-    xp:               0,
-    coins:            0,
-    tokens:           0
-  }, { onConflict: 'id' });
-
-  // Ignora erro de unicidade do nickname (trigger pode ter gerado outro)
-  if (upErr && !upErr.message?.includes('unique') && !upErr.message?.includes('duplicate')) {
-    console.warn('signUp profile upsert warning:', upErr.message);
+  if (user) {
+    // O trigger handle_new_user() já pode ter criado o row.
+    // Upsert com o nickname escolhido pelo usuário na tela de cadastro.
+    await sb.from('users').upsert({
+      id: user.id, email,
+      nickname: nickname,
+      profile_nickname: nickname,
+      role: 'user', profile_role: 'Marmotinha',
+      level: 1, xp: 0, coins: 0, tokens: 0
+    }, { onConflict: 'id' }).select();
   }
-
   return data;
 }
 
 export async function signIn(email, password) {
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if (error) throw error;
-
-  // Garante que o perfil existe (caso o trigger não tenha rodado)
-  if (data.user) {
-    const { data: existing } = await sb.from('users').select('id').eq('id', data.user.id).maybeSingle();
-    if (!existing) {
-      const base = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20) || 'user';
-      await sb.from('users').upsert({
-        id: data.user.id, email, nickname: base,
-        username: base, profile_nickname: base,
-        role: 'user', profile_role: 'Marmotinha',
-        level: 1, xp: 0, coins: 0, tokens: 0
-      }, { onConflict: 'id', ignoreDuplicates: true });
-    }
-  }
+  // Garante que perfil existe (cobre usuários antigos sem row na tabela)
+  if (data.user) await ensureProfile(data.user);
   return data;
 }
 
@@ -65,14 +91,18 @@ export async function signOut() {
 }
 
 export async function resetPassword(email) {
-  const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + '/index.html'
-  });
+  const redirectTo = window.location.hostname.includes('github.io')
+    ? 'https://kayhamcristoffer.github.io/marmota-rpg-2.io/index.html'
+    : `${window.location.origin}/index.html`;
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) throw error;
 }
 
 export function onAuthStateChange(callback) {
-  const { data: { subscription } } = sb.auth.onAuthStateChange((event, session) => {
+  const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
+    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
+      await ensureProfile(session.user);
+    }
     callback(session?.user ?? null, event);
   });
   return subscription;
@@ -81,14 +111,12 @@ export function onAuthStateChange(callback) {
 // ─── USERS ────────────────────────────────────────────────────
 
 export async function getUser(userId) {
-  const { data, error } = await sb
-    .from('users').select('*').eq('id', userId).single();
+  const { data, error } = await sb.from('users').select('*').eq('id', userId).single();
   if (error) throw error;
   return data;
 }
 
 export async function updateUserProfile(userId, updates) {
-  // Não usa .single() para evitar "Cannot coerce to single JSON object"
   const { data, error } = await sb
     .from('users')
     .update({ ...updates, updated_at: new Date().toISOString() })
@@ -105,6 +133,9 @@ export async function getAllUsers() {
   return data ?? [];
 }
 
+// Admin: atualiza role e profile_role
+// A RLS u_upd permite: auth.uid() = id OR is_admin()
+// is_admin() faz SELECT na tabela users — isso funciona com SECURITY DEFINER.
 export async function setUserRole(userId, role, profileRole) {
   const updates = { role };
   if (profileRole !== undefined) updates.profile_role = profileRole;
@@ -123,21 +154,19 @@ export async function getAllQuests() {
 export async function getActiveQuests() {
   const { data, error } = await sb
     .from('quests').select('*').eq('is_active', true)
-    .order('created_at', { ascending: false });
+    .order('type').order('created_at', { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
 export async function createQuest(questData) {
-  const { data, error } = await sb
-    .from('quests').insert(questData).select();
+  const { data, error } = await sb.from('quests').insert(questData).select();
   if (error) throw error;
   return data?.[0] ?? null;
 }
 
 export async function updateQuest(questId, updates) {
-  const { data, error } = await sb
-    .from('quests').update(updates).eq('id', questId).select();
+  const { data, error } = await sb.from('quests').update(updates).eq('id', questId).select();
   if (error) throw error;
   return data?.[0] ?? null;
 }
@@ -151,32 +180,53 @@ export async function toggleQuestActive(questId, isActive) {
   return updateQuest(questId, { is_active: isActive });
 }
 
-// ─── SUBMISSIONS ──────────────────────────────────────────────
+// ─── SUBMISSIONS (quests) ─────────────────────────────────────
+// proof_url: URL de screenshot (prnt.sc, imgur, etc.) OU base64 (apenas se image_required=true)
 
 export async function createSubmission(userId, questId, proofUrl) {
-  // Primeiro garante que o perfil existe (evita FK violation)
+  // Garante perfil
   const { data: userRow } = await sb.from('users').select('id').eq('id', userId).maybeSingle();
   if (!userRow) throw new Error('Perfil não encontrado. Faça logout e login novamente.');
 
-  // Verifica se já existe submissão ativa
+  // Busca quest para verificar cooldown e image_required
+  const { data: quest } = await sb.from('quests')
+    .select('cooldown_hours, image_required').eq('id', questId).single();
+
+  // Verifica submissão existente (mais recente)
   const { data: existing } = await sb
     .from('submissions')
-    .select('id, status')
+    .select('id, status, cooldown_until')
     .eq('user_id', userId)
     .eq('quest_id', questId)
-    .in('status', ['pending', 'approved'])
+    .order('submitted_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (existing) {
-    throw new Error(existing.status === 'approved'
-      ? 'Quest já foi concluída!'
-      : 'Quest já está em análise!');
+    if (existing.status === 'approved') {
+      if (quest?.cooldown_hours > 0 && existing.cooldown_until) {
+        const until = new Date(existing.cooldown_until);
+        if (until > new Date()) {
+          const diffH = Math.ceil((until - new Date()) / 3600000);
+          const diffM = Math.ceil((until - new Date()) / 60000);
+          const msg = diffH >= 1
+            ? `Quest em cooldown! Disponível em ${diffH}h.`
+            : `Quest em cooldown! Disponível em ${diffM} min.`;
+          throw new Error(msg);
+        }
+      } else if (quest?.cooldown_hours === 0) {
+        throw new Error('Quest já foi concluída!');
+      }
+    } else if (existing.status === 'pending') {
+      throw new Error('Quest já está em análise!');
+    }
+    // 'rejected' → permite reenvio
   }
 
   const { data, error } = await sb.from('submissions').insert({
     user_id:  userId,
     quest_id: questId,
-    proof_url: proofUrl,
+    proof_url: proofUrl || null,
     status:   'pending'
   }).select();
   if (error) throw error;
@@ -186,7 +236,7 @@ export async function createSubmission(userId, questId, proofUrl) {
 export async function getUserSubmissions(userId) {
   const { data, error } = await sb
     .from('submissions')
-    .select(`*, quests(title, type, reward_coins, reward_xp, icon_url)`)
+    .select(`*, quests(title, type, reward_coins, reward_xp, icon_url, cooldown_hours, image_required)`)
     .eq('user_id', userId)
     .order('submitted_at', { ascending: false });
   if (error) throw error;
@@ -196,7 +246,7 @@ export async function getUserSubmissions(userId) {
 export async function getPendingSubmissions() {
   const { data, error } = await sb
     .from('submissions')
-    .select(`*, users(nickname, icon_url, profile_nickname), quests(title, type, reward_coins, reward_xp)`)
+    .select(`*, users(nickname, profile_nickname, icon_url), quests(title, type, reward_coins, reward_xp, icon_url)`)
     .eq('status', 'pending')
     .order('submitted_at', { ascending: true });
   if (error) throw error;
@@ -206,31 +256,35 @@ export async function getPendingSubmissions() {
 export async function approveSubmission(submissionId) {
   const { data: sub, error: subErr } = await sb
     .from('submissions')
-    .select(`*, quests(reward_coins, reward_xp), users(coins, xp, level, coins_daily, coins_weekly, coins_monthly, tokens, tokens_daily, tokens_weekly, tokens_monthly)`)
-    .eq('id', submissionId)
-    .single();
+    .select(`*, quests(reward_coins, reward_xp, cooldown_hours), users(coins, xp, level, coins_daily, coins_weekly, coins_monthly)`)
+    .eq('id', submissionId).single();
   if (subErr) throw subErr;
 
-  const reward_coins = sub.quests?.reward_coins || 0;
-  const reward_xp    = sub.quests?.reward_xp    || 0;
-  const user         = sub.users;
+  const rc = sub.quests?.reward_coins || 0;
+  const rx = sub.quests?.reward_xp    || 0;
+  const u  = sub.users;
 
-  const newXp    = (user.xp    || 0) + reward_xp;
-  const newCoins = (user.coins || 0) + reward_coins;
+  const newXp    = (u.xp    || 0) + rx;
+  const newCoins = (u.coins || 0) + rc;
   const newLevel = calcLevel(newXp);
+
+  // Próximo cooldown às 01:45
+  let cooldownUntil = null;
+  const ch = sub.quests?.cooldown_hours || 0;
+  if (ch > 0) cooldownUntil = getNextReset(ch);
 
   await sb.from('users').update({
     coins:         newCoins,
     xp:            newXp,
     level:         newLevel,
-    coins_daily:   (user.coins_daily   || 0) + reward_coins,
-    coins_weekly:  (user.coins_weekly  || 0) + reward_coins,
-    coins_monthly: (user.coins_monthly || 0) + reward_coins,
+    coins_daily:   (u.coins_daily   || 0) + rc,
+    coins_weekly:  (u.coins_weekly  || 0) + rc,
+    coins_monthly: (u.coins_monthly || 0) + rc,
     updated_at:    new Date().toISOString()
   }).eq('id', sub.user_id);
 
   const { data, error } = await sb.from('submissions')
-    .update({ status: 'approved', reviewed_at: new Date().toISOString() })
+    .update({ status: 'approved', reviewed_at: new Date().toISOString(), cooldown_until: cooldownUntil })
     .eq('id', submissionId).select();
   if (error) throw error;
 
@@ -246,7 +300,106 @@ export async function rejectSubmission(submissionId) {
   return data?.[0] ?? null;
 }
 
-// ─── MAPS ─────────────────────────────────────────────────────
+// ─── MAP SUBMISSIONS (usuário envia, admin aprova) ────────────
+// image_url: URL de screenshot (não base64)
+
+export async function submitMapByUser(userId, mapData) {
+  const { data: userRow } = await sb.from('users').select('id').eq('id', userId).maybeSingle();
+  if (!userRow) throw new Error('Perfil não encontrado. Faça logout e login novamente.');
+
+  const { data, error } = await sb.from('map_submissions').insert({
+    user_id:      userId,
+    title:        mapData.title,
+    description:  mapData.description || '',
+    type:         mapData.type || 'adventure',
+    download_url: mapData.download_url || null,
+    image_url:    mapData.image_url   || null,   // URL, não base64
+    status:       'pending'
+  }).select();
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+export async function getUserMapSubmissions(userId) {
+  const { data, error } = await sb
+    .from('map_submissions')
+    .select('*')
+    .eq('user_id', userId)
+    .order('submitted_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getPendingMapSubmissions() {
+  const { data, error } = await sb
+    .from('map_submissions')
+    .select(`*, users(nickname, profile_nickname, icon_url)`)
+    .eq('status', 'pending')
+    .order('submitted_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Admin aprova submissão de mapa + define recompensas + cria entry em maps
+export async function approveMapSubmission(mapSubId, rewards, adminNotes) {
+  const { data: ms, error: msErr } = await sb
+    .from('map_submissions').select('*').eq('id', mapSubId).single();
+  if (msErr) throw msErr;
+
+  const rc = rewards.reward_coins  || 0;
+  const rx = rewards.reward_xp     || 0;
+  const rt = rewards.reward_tokens || 0;
+
+  // Cria o mapa aprovado na tabela maps
+  const { data: newMap, error: mapErr } = await sb.from('maps').insert({
+    title:        ms.title,
+    description:  ms.description,
+    type:         ms.type,
+    image_url:    ms.image_url,   // URL propagada diretamente
+    download_url: ms.download_url,
+    submitted_by: ms.user_id,
+    reward_coins:  rc,
+    reward_xp:     rx,
+    reward_tokens: rt,
+    icon_url:     MAP_TYPE_ICONS[ms.type] || '🗺️'
+  }).select();
+  if (mapErr) throw mapErr;
+
+  // Atualiza o map_submission
+  await sb.from('map_submissions').update({
+    status:       'approved',
+    reviewed_at:  new Date().toISOString(),
+    reward_coins: rc, reward_xp: rx, reward_tokens: rt,
+    admin_notes:  adminNotes || null
+  }).eq('id', mapSubId);
+
+  // Recompensa o usuário
+  const { data: u } = await sb.from('users').select('coins,xp,level,tokens').eq('id', ms.user_id).maybeSingle();
+  if (u) {
+    const newXp    = (u.xp    || 0) + rx;
+    const newLevel = calcLevel(newXp);
+    await sb.from('users').update({
+      coins:  (u.coins  || 0) + rc,
+      xp:     newXp,
+      level:  newLevel,
+      tokens: (u.tokens || 0) + rt,
+      updated_at: new Date().toISOString()
+    }).eq('id', ms.user_id);
+  }
+
+  return newMap?.[0] ?? null;
+}
+
+export async function rejectMapSubmission(mapSubId, adminNotes) {
+  const { error } = await sb.from('map_submissions').update({
+    status:      'rejected',
+    reviewed_at: new Date().toISOString(),
+    admin_notes: adminNotes || null
+  }).eq('id', mapSubId);
+  if (error) throw error;
+}
+
+// ─── MAPS (aprovados) ─────────────────────────────────────────
 
 export async function getAllMaps() {
   const { data, error } = await sb
@@ -256,15 +409,13 @@ export async function getAllMaps() {
 }
 
 export async function createMap(mapData) {
-  const { data, error } = await sb
-    .from('maps').insert(mapData).select();
+  const { data, error } = await sb.from('maps').insert(mapData).select();
   if (error) throw error;
   return data?.[0] ?? null;
 }
 
 export async function updateMap(mapId, updates) {
-  const { data, error } = await sb
-    .from('maps').update(updates).eq('id', mapId).select();
+  const { data, error } = await sb.from('maps').update(updates).eq('id', mapId).select();
   if (error) throw error;
   return data?.[0] ?? null;
 }
@@ -279,34 +430,8 @@ export async function likeMap(mapId) {
   if (error) throw error;
 }
 
-export async function createMapSubmission(userId, mapId, proofUrl) {
-  const { data: userRow } = await sb.from('users').select('id').eq('id', userId).maybeSingle();
-  if (!userRow) throw new Error('Perfil não encontrado. Faça logout e login novamente.');
-
-  const { data: existing } = await sb
-    .from('submissions')
-    .select('id, status')
-    .eq('user_id', userId)
-    .eq('map_id', mapId)
-    .in('status', ['pending', 'approved'])
-    .maybeSingle();
-
-  if (existing) throw new Error('Você já enviou este mapa!');
-
-  const { data, error } = await sb.from('submissions').insert({
-    user_id:   userId,
-    map_id:    mapId,
-    proof_url: proofUrl,
-    status:    'pending'
-  }).select();
-  if (error) throw error;
-  return data?.[0] ?? null;
-}
-
 // ─── RANKING ──────────────────────────────────────────────────
 
-// type: 'total' | 'daily' | 'weekly' | 'monthly'
-// metric: 'coins' | 'tokens'
 export async function getRanking(type = 'total', metric = 'coins') {
   const prefix = metric === 'tokens' ? 'tokens' : 'coins';
   const fieldMap = {
@@ -332,14 +457,11 @@ export async function getRanking(type = 'total', metric = 'coins') {
 }
 
 export function subscribeRanking(type, metric, callback) {
-  const channel = sb
-    .channel(`ranking-${type}-${metric}`)
+  const ch = sb.channel(`ranking-${type}-${metric}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, async () => {
-      const data = await getRanking(type, metric);
-      callback(data);
-    })
-    .subscribe();
-  return channel;
+      callback(await getRanking(type, metric));
+    }).subscribe();
+  return ch;
 }
 
 export function unsubscribeRanking(channel) {
@@ -355,16 +477,14 @@ export async function getAllAchievements() {
   return data ?? [];
 }
 
-export async function createAchievement(achievementData) {
-  const { data, error } = await sb
-    .from('achievements').insert(achievementData).select();
+export async function createAchievement(d) {
+  const { data, error } = await sb.from('achievements').insert(d).select();
   if (error) throw error;
   return data?.[0] ?? null;
 }
 
-export async function updateAchievement(id, updates) {
-  const { data, error } = await sb
-    .from('achievements').update(updates).eq('id', id).select();
+export async function updateAchievement(id, d) {
+  const { data, error } = await sb.from('achievements').update(d).eq('id', id).select();
   if (error) throw error;
   return data?.[0] ?? null;
 }
@@ -376,9 +496,7 @@ export async function deleteAchievement(id) {
 
 export async function getUserBadges(userId) {
   const { data, error } = await sb
-    .from('user_badges')
-    .select(`*, achievements(*)`)
-    .eq('user_id', userId);
+    .from('user_badges').select(`*, achievements(*)`).eq('user_id', userId);
   if (error) throw error;
   return data ?? [];
 }
@@ -386,112 +504,117 @@ export async function getUserBadges(userId) {
 export async function checkAndGrantAchievements(userId) {
   try {
     const { count: questCount } = await sb
-      .from('submissions')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('status', 'approved')
-      .not('quest_id', 'is', null);
-
+      .from('submissions').select('*', { count: 'exact', head: true })
+      .eq('user_id', userId).eq('status', 'approved');
     const { data: user }   = await sb.from('users').select('level').eq('id', userId).maybeSingle();
     const { data: badges } = await sb.from('user_badges').select('achievement_id').eq('user_id', userId);
-    const earnedIds        = new Set((badges || []).map(b => b.achievement_id));
-    const achievements     = await getAllAchievements();  // corrigido: era const { data: achievements }
-
-    for (const ach of achievements) {
-      if (earnedIds.has(ach.id)) continue;
-      const meetsLevel  = !ach.level_required  || (user?.level  || 1) >= ach.level_required;
-      const meetsQuests = !ach.quests_required || (questCount   || 0) >= ach.quests_required;
-      if (meetsLevel && meetsQuests) {
+    const earned = new Set((badges || []).map(b => b.achievement_id));
+    const achs   = await getAllAchievements();
+    for (const a of achs) {
+      if (earned.has(a.id)) continue;
+      if ((!a.level_required   || (user?.level || 1) >= a.level_required) &&
+          (!a.quests_required  || (questCount || 0) >= a.quests_required)) {
         await sb.from('user_badges').upsert(
-          { user_id: userId, achievement_id: ach.id },
+          { user_id: userId, achievement_id: a.id },
           { onConflict: 'user_id,achievement_id', ignoreDuplicates: true }
         );
-        if (ach.reward_coins > 0 || ach.reward_xp > 0) {
-          const { data: u } = await sb.from('users').select('coins, xp').eq('id', userId).maybeSingle();
+        if (a.reward_coins > 0 || a.reward_xp > 0) {
+          const { data: u } = await sb.from('users').select('coins,xp').eq('id', userId).maybeSingle();
           if (u) await sb.from('users').update({
-            coins: (u.coins || 0) + (ach.reward_coins || 0),
-            xp:    (u.xp    || 0) + (ach.reward_xp    || 0)
+            coins: (u.coins || 0) + (a.reward_coins || 0),
+            xp:    (u.xp    || 0) + (a.reward_xp   || 0)
           }).eq('id', userId);
         }
       }
     }
-  } catch (e) {
-    console.warn('checkAndGrantAchievements error:', e);
-  }
+  } catch (e) { console.warn('checkAndGrantAchievements:', e); }
 }
 
 // ─── RANKING RESETS ───────────────────────────────────────────
 
 export async function resetDailyRanking() {
-  const { data: users } = await sb.from('users').select('id, coins_daily').gt('coins_daily', 0);
+  const { data: users } = await sb.from('users').select('id,coins_daily').gt('coins_daily', 0);
   if (users?.length) {
     const today = new Date().toISOString().split('T')[0];
     await sb.from('ranking_history').insert(
       users.map(u => ({ user_id: u.id, score_type: 'daily', score_value: u.coins_daily, period_label: today }))
     );
   }
-  await sb.from('users').update({ coins_daily: 0, tokens_daily: 0 }).gte('coins_daily', 0);
+  await sb.from('users').update({ coins_daily: 0, tokens_daily: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
 }
 
 export async function resetWeeklyRanking() {
-  const { data: users } = await sb.from('users').select('id, coins_weekly').gt('coins_weekly', 0);
+  const { data: users } = await sb.from('users').select('id,coins_weekly').gt('coins_weekly', 0);
   if (users?.length) {
     const week = getWeekLabel();
     await sb.from('ranking_history').insert(
       users.map(u => ({ user_id: u.id, score_type: 'weekly', score_value: u.coins_weekly, period_label: week }))
     );
   }
-  await sb.from('users').update({ coins_weekly: 0, tokens_weekly: 0 }).gte('coins_weekly', 0);
+  await sb.from('users').update({ coins_weekly: 0, tokens_weekly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
 }
 
 export async function resetMonthlyRanking() {
-  const { data: users } = await sb.from('users').select('id, coins_monthly').gt('coins_monthly', 0);
+  const { data: users } = await sb.from('users').select('id,coins_monthly').gt('coins_monthly', 0);
   if (users?.length) {
     const month = new Date().toISOString().substring(0, 7);
     await sb.from('ranking_history').insert(
       users.map(u => ({ user_id: u.id, score_type: 'monthly', score_value: u.coins_monthly, period_label: month }))
     );
   }
-  await sb.from('users').update({ coins_monthly: 0, tokens_monthly: 0 }).gte('coins_monthly', 0);
+  await sb.from('users').update({ coins_monthly: 0, tokens_monthly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
 }
 
 // ─── UTILS ────────────────────────────────────────────────────
 
-export function calcLevel(xp) {
-  return Math.max(1, Math.floor(Math.sqrt((xp || 0) / 100)) + 1);
-}
-
-export function xpForLevel(level) {
-  return (level - 1) ** 2 * 100;
-}
-
-export function xpForNextLevel(level) {
-  return level ** 2 * 100;
-}
+export function calcLevel(xp) { return Math.max(1, Math.floor(Math.sqrt((xp || 0) / 100)) + 1); }
+export function xpForLevel(l) { return (l - 1) ** 2 * 100; }
+export function xpForNextLevel(l) { return l ** 2 * 100; }
 
 export function getWeekLabel() {
-  const d    = new Date();
-  const jan1 = new Date(d.getFullYear(), 0, 1);
-  const week = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-  return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+  const d = new Date(), jan1 = new Date(d.getFullYear(), 0, 1);
+  const wk = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+  return `${d.getFullYear()}-W${String(wk).padStart(2, '0')}`;
 }
 
 export function isMaintenanceTime() {
-  const h = new Date().getHours();
-  const m = new Date().getMinutes();
-  return (h === 1 && m >= 30) || (h === 2 && m === 0);
+  const h = new Date().getHours(), m = new Date().getMinutes();
+  return (h === 1 && m >= 45) || (h === 2 && m < 5);
 }
 
-// Upload de prova como base64 data URL (sem backend — GitHub Pages)
+// Calcula próximo reset às 01:45 (BRT) respeitando cooldown_hours
+export function getNextReset(cooldownHours) {
+  const now  = new Date();
+  const next = new Date(now);
+  next.setHours(1, 45, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  const minNext = new Date(now.getTime() + cooldownHours * 3600000);
+  return (minNext > next ? minNext : next).toISOString();
+}
+
+// Formata cooldown_until em texto legível
+export function formatCooldown(isoDate) {
+  if (!isoDate) return null;
+  const until = new Date(isoDate);
+  const now   = new Date();
+  if (until <= now) return null;
+  const diffMs = until - now;
+  const h = Math.floor(diffMs / 3600000);
+  const m = Math.floor((diffMs % 3600000) / 60000);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m} min`;
+}
+
+// Upload de imagem como base64 — SOMENTE para capa de mapas (admin)
 export async function uploadProofImage(file) {
   return new Promise((resolve, reject) => {
-    if (!file) { reject(new Error('Nenhum arquivo selecionado')); return; }
-    if (file.size > 2 * 1024 * 1024) { reject(new Error('Imagem muito grande! Máximo: 2MB')); return; }
+    if (!file) { reject(new Error('Nenhum arquivo')); return; }
+    if (file.size > 3 * 1024 * 1024) { reject(new Error('Imagem muito grande! Máximo: 3MB')); return; }
     const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowed.includes(file.type)) { reject(new Error('Formato inválido. Use JPG, PNG, GIF ou WEBP.')); return; }
+    if (!allowed.includes(file.type)) { reject(new Error('Use JPG, PNG, GIF ou WEBP')); return; }
     const reader = new FileReader();
     reader.onload  = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Erro ao ler o arquivo'));
+    reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
     reader.readAsDataURL(file);
   });
 }

@@ -1,8 +1,24 @@
-# 📚 TUTORIAL COMPLETO — Configurar RPG Quests v2 com Supabase
+# 📚 TUTORIAL COMPLETO — Configurar RPG Quests v4 com Supabase
 
 > **Tempo estimado:** 30–45 minutos  
 > **Nível:** Iniciante  
 > **O que você vai configurar:** Supabase (banco de dados + auth) + GitHub Pages (hospedagem)
+
+## 🆕 Changelog v4 (último update)
+
+| Item | Descrição |
+|------|-----------|
+| ✅ Link de confirmação de e-mail | Redireciona corretamente para `https://kayhamcristoffer.github.io/marmota-rpg-2.io/index.html` |
+| ✅ Auto-criação de perfil | Login de usuários sem row na tabela `users` cria o perfil automaticamente |
+| ✅ Emoji picker | Perfil: escolha de avatar por emoji (🐾⚔️👑…) sem precisar de URL de imagem |
+| ✅ Prova de quest por URL | Comprovantes por link (prnt.sc, imgur) — upload de imagem apenas se `image_required=true` |
+| ✅ Cooldown visual | Cards de quests mostram tempo restante antes do reset (01:45) |
+| ✅ Timestamps em Minhas Quests | Data de envio e data de revisão exibidas por quest |
+| ✅ Submissão de mapas pelos usuários | Aba "Enviar Mapa" no dashboard; admin aprova e define recompensas |
+| ✅ Aba "Mapas Enviados" no admin | Admin revisa submissões pendentes de mapas com definição de recompensas |
+| ✅ setUserRole persistindo | Correção do update de role/profile_role pelo admin |
+| ✅ image_required no admin | Checkbox diferencia "Upload de imagem" vs "Aceita link de print" |
+| ✅ map_submissions.image_url | Campo agora é URL (não mais base64) |
 
 ---
 

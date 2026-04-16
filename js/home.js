@@ -1,26 +1,43 @@
 // ============================================================
-// HOME.JS v2 - Dashboard com Supabase
-// Fixes: token/coins ranking toggle, profile_nickname, remove Nv prefix,
-//        profileRole display, perfil edit expandido
+// HOME.JS v4 — Dashboard com Supabase
+// Changelog v4:
+//  - Quest proof: URL (prnt.sc) por padrão; upload só se image_required=true
+//  - Emoji picker no perfil (sem URL obrigatória)
+//  - Cooldown display nas quest cards
+//  - My Quests: submitted_at + reviewed_at com timestamps
+//  - Map submission: usuário envia dados + URL de imagem
+//  - Map filter buttons ligados ao estado
 // ============================================================
 import { requireAuth, renderUserInSidebar, showToast, isAdmin } from '../supabase/session-manager.js';
 import {
   getUser, getUserSubmissions, getActiveQuests, getAllMaps,
   getUserBadges, getAllAchievements, getRanking, subscribeRanking,
-  unsubscribeRanking, createSubmission, createMapSubmission,
+  unsubscribeRanking, createSubmission, submitMapByUser,
   updateUserProfile, uploadProofImage, isMaintenanceTime,
-  calcLevel, xpForLevel, xpForNextLevel, likeMap
+  calcLevel, xpForLevel, xpForNextLevel, likeMap, formatCooldown
 } from '../supabase/database.js';
 
 // ── Estado ───────────────────────────────────────────────────
 let currentProfile  = null;
 let currentUser     = null;
 let currentFilter   = 'all';
+let currentMapFilter = 'all';
 let currentPeriod   = 'total';
-let currentMetric   = 'coins';   // 'coins' | 'tokens'
+let currentMetric   = 'coins';
 let rankingChannel  = null;
 let allQuests       = [];
+let allMaps         = [];
 let mySubmissions   = [];
+
+// Lista de emojis para o picker de avatar
+const AVATAR_EMOJIS = [
+  '🐾','⚔️','🛡️','🏹','🧙','🧝','🧛','🧟','🦸','🦹',
+  '🐉','🦊','🐺','🐻','🦁','🐯','🐮','🐸','🐼','🐨',
+  '🌟','⭐','💫','🔥','❄️','⚡','🌊','🍀','🌸','🌺',
+  '👑','💎','🏆','🎯','🎮','🎲','🃏','🗡️','🪄','🔮',
+  '🏔️','🌋','🌈','🌙','☀️','🌊','🍄','🌿','🌴','🌵',
+  '😎','😈','👿','💀','☠️','🤖','👾','🎭','🥷','🧿'
+];
 
 // ── Init ─────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -35,9 +52,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderUserInSidebar(currentProfile);
   setupNavigation();
   setupQuestFilters();
+  setupMapFilters();
   setupRankingFilters();
   setupModals();
   setupProfile();
+  setupEmojiPicker();
 
   await loadDashboard();
 
@@ -197,13 +216,33 @@ function renderQuests() {
   const typeIcons  = { daily:'fa-sun', weekly:'fa-calendar-week', monthly:'fa-calendar-alt', event:'fa-star' };
 
   grid.innerHTML = quests.map(q => {
-    const sub  = mySubmissions.find(s => s.quest_id === q.id);
-    const status = sub?.status;
+    // Pega a submissão mais recente para esta quest
+    const subList = mySubmissions.filter(s => s.quest_id === q.id);
+    const sub     = subList[0]; // mais recente (sorted by submitted_at desc)
+    const status  = sub?.status;
+
     let btnClass = '', btnText = '', btnDisabled = '';
-    if (status === 'approved')  { btnClass = 'completed'; btnText = '✓ Concluída';        btnDisabled = 'disabled'; }
-    else if (status === 'pending')  { btnClass = 'pending';   btnText = '⏳ Em Análise';  btnDisabled = 'disabled'; }
-    else if (status === 'rejected') { btnText = '🔄 Reenviar Comprovante'; }
-    else { btnText = '📸 Enviar Comprovante'; }
+    let extraHtml = '';
+
+    if (status === 'approved') {
+      // Verifica cooldown
+      const cd = formatCooldown(sub?.cooldown_until);
+      if (cd) {
+        btnClass = 'taken'; btnText = `⏳ Cooldown: ${cd}`; btnDisabled = 'disabled';
+        extraHtml = `<div class="cooldown-badge"><i class="fas fa-clock"></i> Reset em ${cd}</div>`;
+      } else if (q.cooldown_hours > 0) {
+        // Cooldown expirado → pode refazer
+        btnText = '🔄 Refazer';
+      } else {
+        btnClass = 'completed'; btnText = '✓ Concluída'; btnDisabled = 'disabled';
+      }
+    } else if (status === 'pending') {
+      btnClass = 'pending'; btnText = '⏳ Em Análise'; btnDisabled = 'disabled';
+    } else if (status === 'rejected') {
+      btnText = '🔄 Reenviar Comprovante';
+    } else {
+      btnText = q.image_required ? '📸 Enviar Comprovante' : '📋 Registrar Conclusão';
+    }
 
     const levelLock = (currentProfile?.level || 1) < (q.min_level || 1);
     if (levelLock) { btnClass = 'taken'; btnText = `🔒 Nível ${q.min_level} necessário`; btnDisabled = 'disabled'; }
@@ -215,9 +254,11 @@ function renderQuests() {
       <div class="quest-meta">
         <span class="quest-reward"><i class="fas fa-coins"></i> ${q.reward_coins || 0} <span class="xp-reward">+${q.reward_xp || 0} XP</span></span>
         ${q.min_level > 1 ? `<span class="quest-slots"><i class="fas fa-lock"></i> Nível ${q.min_level}+</span>` : ''}
+        ${q.cooldown_hours > 0 ? `<span style="font-size:.72rem;color:var(--text-muted)"><i class="fas fa-redo"></i> ${q.cooldown_hours}h cooldown</span>` : ''}
       </div>
+      ${extraHtml}
       <button class="btn-take-quest ${btnClass}" ${btnDisabled}
-        onclick="openSubmitModal('${q.id}')">${btnText}</button>
+        onclick="openSubmitModal('${q.id}', ${!!q.image_required})">${btnText}</button>
     </div>`;
   }).join('');
 }
@@ -247,6 +288,17 @@ async function loadMyQuests() {
     const statusLabels = { pending:'Em Análise', approved:'Aprovada', rejected:'Rejeitada' };
     list.innerHTML = subs.map(s => {
       const q = s.quests;
+      // Timestamps formatados
+      const submittedAt = s.submitted_at
+        ? `<span><i class="fas fa-paper-plane"></i> ${fmtDate(s.submitted_at)}</span>`
+        : '';
+      const reviewedAt = s.reviewed_at
+        ? `<span><i class="fas fa-check"></i> ${fmtDate(s.reviewed_at)}</span>`
+        : '';
+      // Cooldown restante (para aprovadas com cooldown)
+      const cd = s.status === 'approved' ? formatCooldown(s.cooldown_until) : null;
+      const cdHtml = cd ? `<div class="cooldown-badge" style="margin-top:4px"><i class="fas fa-clock"></i> Cooldown: ${cd}</div>` : '';
+
       return `<div class="my-quest-item">
         <div class="my-quest-icon">${q?.icon_url || '📜'}</div>
         <div class="my-quest-info">
@@ -254,16 +306,22 @@ async function loadMyQuests() {
           <div class="my-quest-meta">
             <span><i class="fas fa-coins"></i> +${q?.reward_coins || 0}</span>
             <span><i class="fas fa-star"></i> +${q?.reward_xp || 0} XP</span>
-            <span>${new Date(s.submitted_at).toLocaleDateString('pt-BR')}</span>
           </div>
+          <div class="my-quest-timestamps">${submittedAt}${reviewedAt}</div>
+          ${cdHtml}
         </div>
         <span class="status-badge status-${s.status}">${statusLabels[s.status] || s.status}</span>
-        ${s.status === 'rejected' ? `<button class="btn-submit-quest" onclick="openSubmitModal('${s.quest_id}')">Reenviar</button>` : ''}
+        ${s.status === 'rejected' ? `<button class="btn-submit-quest" onclick="openSubmitModal('${s.quest_id}', ${!!q?.image_required})">Reenviar</button>` : ''}
       </div>`;
     }).join('');
   } catch (err) {
     list.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro ao carregar</h3></div>`;
   }
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
 // ── Maps ──────────────────────────────────────────────────────
@@ -272,41 +330,58 @@ async function loadMaps() {
   if (!grid) return;
   grid.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando mapas…</h3></div>';
   try {
-    const maps = await getAllMaps();
-    if (!maps.length) {
-      grid.innerHTML = '<div class="empty-state"><i class="fas fa-map"></i><h3>Nenhum mapa disponível</h3></div>';
-      return;
-    }
-    grid.innerHTML = maps.map(m => `
-      <div class="map-card" data-type="${m.type || 'all'}">
-        <div class="map-image">${
-          m.image_url
-            ? `<img src="${m.image_url}" alt="${m.title}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius-md)" onerror="this.style.display='none'">`
-            : (m.icon_url || '🗺️')
-        }</div>
-        <div class="map-body">
-          <h3 class="map-title">${m.icon_url ? m.icon_url + ' ' : ''}${m.title}</h3>
-          <p class="map-description">${m.description || ''}</p>
-          <div class="map-meta">
-            <span><i class="fas fa-heart"></i> ${m.likes_count || 0}</span>
-            <span><i class="fas fa-eye"></i> ${m.views_count || 0}</span>
-            ${m.type ? `<span class="map-type-badge">${m.type}</span>` : ''}
-          </div>
-          <div class="map-rewards">
-            ${m.reward_coins  ? `<span class="map-reward-badge reward-coins"><i class="fas fa-coins"></i> ${m.reward_coins}</span>` : ''}
-            ${m.reward_xp     ? `<span class="map-reward-badge reward-xp"><i class="fas fa-star"></i> ${m.reward_xp} XP</span>` : ''}
-            ${m.reward_tokens ? `<span class="map-reward-badge reward-tokens"><i class="fas fa-gem"></i> ${m.reward_tokens} tokens</span>` : ''}
-          </div>
-          <div class="map-actions">
-            ${m.download_url ? `<a class="btn-map-action btn-download" href="${m.download_url}" target="_blank"><i class="fas fa-download"></i> Baixar</a>` : ''}
-            <button class="btn-map-action btn-like" onclick="likeMapBtn('${m.id}', this)"><i class="fas fa-heart"></i> ${m.likes_count || 0}</button>
-            ${m.image_required ? `<button class="btn-map-action btn-submit-map" onclick="openMapModal('${m.id}')"><i class="fas fa-upload"></i> Enviar</button>` : ''}
-          </div>
-        </div>
-      </div>`).join('');
+    allMaps = await getAllMaps();
+    renderMaps();
   } catch (err) {
     grid.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro ao carregar mapas</h3></div>`;
   }
+}
+
+function renderMaps() {
+  const grid = document.getElementById('mapsGrid');
+  if (!grid) return;
+  const maps = currentMapFilter === 'all' ? allMaps : allMaps.filter(m => m.type === currentMapFilter);
+  if (!maps.length) {
+    grid.innerHTML = '<div class="empty-state"><i class="fas fa-map"></i><h3>Nenhum mapa disponível</h3></div>';
+    return;
+  }
+  grid.innerHTML = maps.map(m => `
+    <div class="map-card" data-type="${m.type || 'all'}">
+      <div class="map-image">${
+        m.image_url
+          ? `<img src="${m.image_url}" alt="${m.title}" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius-md)" onerror="this.parentElement.textContent='${m.icon_url || '🗺️'}'"/>`
+          : `<span style="font-size:2.5rem">${m.icon_url || '🗺️'}</span>`
+      }</div>
+      <div class="map-body">
+        <h3 class="map-title">${m.icon_url ? m.icon_url + ' ' : ''}${m.title}</h3>
+        <p class="map-description">${m.description || ''}</p>
+        <div class="map-meta">
+          <span><i class="fas fa-heart"></i> ${m.likes_count || 0}</span>
+          <span><i class="fas fa-eye"></i> ${m.views_count || 0}</span>
+          ${m.type ? `<span class="map-type-badge">${m.type}</span>` : ''}
+        </div>
+        <div class="map-rewards">
+          ${m.reward_coins  ? `<span class="map-reward-badge reward-coins"><i class="fas fa-coins"></i> ${m.reward_coins}</span>` : ''}
+          ${m.reward_xp     ? `<span class="map-reward-badge reward-xp"><i class="fas fa-star"></i> ${m.reward_xp} XP</span>` : ''}
+          ${m.reward_tokens ? `<span class="map-reward-badge reward-tokens"><i class="fas fa-gem"></i> ${m.reward_tokens} tokens</span>` : ''}
+        </div>
+        <div class="map-actions">
+          ${m.download_url ? `<a class="btn-map-action btn-download" href="${m.download_url}" target="_blank"><i class="fas fa-download"></i> Baixar</a>` : ''}
+          <button class="btn-map-action btn-like" onclick="likeMapBtn('${m.id}', this)"><i class="fas fa-heart"></i> ${m.likes_count || 0}</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function setupMapFilters() {
+  document.querySelectorAll('#mapsFilterBar .filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#mapsFilterBar .filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMapFilter = btn.dataset.filter;
+      renderMaps();
+    });
+  });
 }
 
 // ── Ranking ───────────────────────────────────────────────────
@@ -327,7 +402,6 @@ function renderRanking(data) {
   const list   = document.getElementById('rankingList');
   if (!podium || !list) return;
 
-  // Atualiza label da métrica no topo
   const metricLabel = document.getElementById('rankingMetricLabel');
   if (metricLabel) metricLabel.textContent = currentMetric === 'tokens' ? '💎 Tokens' : '🪙 Moedas';
 
@@ -343,12 +417,12 @@ function renderRanking(data) {
     const u   = top3[i];
     const pos = i + 1;
     const name = u.displayName || u.nickname || '?';
-    const avatar = u.icon_url
-      ? `<img src="${u.icon_url}" class="podium-avatar" alt="${name}" onerror="this.style.display='none'">`
+    const avatarHtml = u.icon_url
+      ? `<div class="podium-avatar" style="overflow:hidden">${isEmoji(u.icon_url) ? `<span style="font-size:1.8rem">${u.icon_url}</span>` : `<img src="${u.icon_url}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.textContent='${name[0].toUpperCase()}'"/>`}</div>`
       : `<div class="podium-avatar">${name[0].toUpperCase()}</div>`;
     return `<div class="podium-item pos-${pos}">
       ${pos === 1 ? '<div style="font-size:1.4rem;margin-bottom:4px">👑</div>' : ''}
-      ${avatar}
+      ${avatarHtml}
       <span class="podium-name">${name}</span>
       <span class="podium-coins"><i class="fas fa-${currentMetric === 'tokens' ? 'gem' : 'coins'}" style="font-size:.75rem"></i> ${u.score.toLocaleString('pt-BR')}</span>
       <div class="podium-stand">${pos}</div>
@@ -359,9 +433,12 @@ function renderRanking(data) {
     const pos  = idx + 4;
     const isMe = u.id === currentUser?.id;
     const name = u.displayName || u.nickname || '?';
+    const avatarContent = u.icon_url
+      ? (isEmoji(u.icon_url) ? u.icon_url : `<img src="${u.icon_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%"/>`)
+      : name[0].toUpperCase();
     return `<div class="ranking-item ${isMe ? 'is-me' : ''}">
       <span class="rank-position">${pos}</span>
-      <div class="ranking-avatar">${u.icon_url ? `<img src="${u.icon_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : name[0].toUpperCase()}</div>
+      <div class="ranking-avatar">${avatarContent}</div>
       <span class="ranking-name">${name}${isMe ? ' 👈' : ''}</span>
       <span class="ranking-level">${u.level || 1}</span>
       <span class="ranking-coins"><i class="fas fa-${currentMetric === 'tokens' ? 'gem' : 'coins'}" style="font-size:.8rem;margin-right:4px"></i>${u.score.toLocaleString('pt-BR')}</span>
@@ -369,8 +446,13 @@ function renderRanking(data) {
   }).join('');
 }
 
+function isEmoji(str) {
+  if (!str) return false;
+  // Emojis são curtos; URLs começam com http
+  return str.length <= 8 && !str.startsWith('http');
+}
+
 function setupRankingFilters() {
-  // Filtros de período
   document.querySelectorAll('#page-ranking .filter-btn[data-period]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#page-ranking .filter-btn[data-period]').forEach(b => b.classList.remove('active'));
@@ -381,7 +463,6 @@ function setupRankingFilters() {
     });
   });
 
-  // Toggle coins/tokens
   document.querySelectorAll('#page-ranking .filter-btn[data-metric]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#page-ranking .filter-btn[data-metric]').forEach(b => b.classList.remove('active'));
@@ -399,18 +480,19 @@ async function loadProfile() {
     const p = await getUser(currentUser.id);
     currentProfile = p;
 
-    // Dados exibidos (somente leitura)
     setValue('profileEmail', currentUser.email || '');
-    // Nível sem "Nv" — só o número
     setValue('profileLevel', p.level || 1);
-    // Cargo exibido (profile_role)
-    setValue('profileRole', p.profile_role || (p.role === 'admin' ? 'Admin' : 'Marmotinha'));
+    setValue('profileRole',  p.profile_role || (p.role === 'admin' ? 'Admin' : 'Marmotinha'));
 
     // Avatar
     const av = document.getElementById('profileAvatar');
     if (av) {
-      if (p.icon_url) {
-        av.style.backgroundImage = `url(${p.icon_url})`;
+      const icon = p.icon_url || '';
+      if (icon && isEmoji(icon)) {
+        av.style.backgroundImage = '';
+        av.textContent = icon;
+      } else if (icon) {
+        av.style.backgroundImage = `url(${icon})`;
         av.style.backgroundSize  = 'cover';
         av.textContent = '';
       } else {
@@ -419,13 +501,15 @@ async function loadProfile() {
       }
     }
 
-    // Campos editáveis
-    const enick = document.getElementById('editNickname');
+    const enick  = document.getElementById('editNickname');
     const epnick = document.getElementById('editProfileNickname');
     const eu     = document.getElementById('editAvatarUrl');
-    if (enick)  enick.value  = p.nickname         || '';
+    const ep     = document.getElementById('emojiPreview');
+    if (enick)  enick.value  = p.nickname || '';
     if (epnick) epnick.value = p.profile_nickname || p.nickname || '';
-    if (eu)     eu.value     = p.icon_url         || '';
+    if (eu)     eu.value     = (p.icon_url && !isEmoji(p.icon_url)) ? p.icon_url : '';
+    if (ep && p.icon_url && isEmoji(p.icon_url)) ep.textContent = p.icon_url;
+    else if (ep) ep.textContent = '🐾';
   } catch (err) {
     showToast('Erro ao carregar perfil: ' + err.message, 'error');
   }
@@ -433,24 +517,28 @@ async function loadProfile() {
 
 function setupProfile() {
   document.getElementById('saveProfileBtn')?.addEventListener('click', async () => {
-    const btn     = document.getElementById('saveProfileBtn');
-    const pnick   = document.getElementById('editProfileNickname')?.value?.trim();
-    const iconUrl = document.getElementById('editAvatarUrl')?.value?.trim();
+    const btn    = document.getElementById('saveProfileBtn');
+    const pnick  = document.getElementById('editProfileNickname')?.value?.trim();
+    const urlVal = document.getElementById('editAvatarUrl')?.value?.trim();
+    const emoji  = document.getElementById('emojiPreview')?.textContent?.trim();
 
     if (!pnick || pnick.length < 2) {
       showToast('Nome de exibição deve ter pelo menos 2 caracteres', 'warning');
       return;
     }
+
+    // Usa emoji se não tiver URL digitada
+    const iconUrl = urlVal || (emoji && emoji !== '🐾' ? emoji : null);
+
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Salvando…';
     try {
       const updated = await updateUserProfile(currentUser.id, {
         profile_nickname: pnick,
-        icon_url:         iconUrl || null
+        icon_url: iconUrl || null
       });
-      if (updated) {
-        currentProfile = { ...currentProfile, ...updated };
-      } else {
+      if (updated) currentProfile = { ...currentProfile, ...updated };
+      else {
         currentProfile.profile_nickname = pnick;
         currentProfile.icon_url = iconUrl || null;
       }
@@ -466,36 +554,97 @@ function setupProfile() {
   });
 }
 
+// ── Emoji Picker ──────────────────────────────────────────────
+function setupEmojiPicker() {
+  const grid   = document.getElementById('emojiGrid');
+  const toggle = document.getElementById('toggleEmojiPicker');
+  const preview = document.getElementById('emojiPreview');
+  if (!grid || !toggle || !preview) return;
+
+  // Importa constante de emojis definida no topo
+  grid.innerHTML = AVATAR_EMOJIS.map(e =>
+    `<button type="button" class="emoji-btn" data-emoji="${e}">${e}</button>`
+  ).join('');
+
+  toggle.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    grid.classList.toggle('open');
+  });
+
+  grid.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.emoji-btn');
+    if (!btn) return;
+    const emoji = btn.dataset.emoji;
+    preview.textContent = emoji;
+    // Limpa a URL quando emoji é escolhido
+    const urlInput = document.getElementById('editAvatarUrl');
+    if (urlInput) urlInput.value = '';
+    grid.classList.remove('open');
+  });
+
+  // Fecha ao clicar fora
+  document.addEventListener('click', (ev) => {
+    if (!ev.target.closest('.emoji-picker-wrap')) grid.classList.remove('open');
+  });
+}
+
+// ── Quest Proof tabs ──────────────────────────────────────────
+window.switchProofTab = function(tab) {
+  document.querySelectorAll('.proof-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.proof-panel').forEach(p => p.classList.toggle('active', p.id === `proofPanel${tab.charAt(0).toUpperCase() + tab.slice(1)}`));
+};
+
 // ── Modais ─────────────────────────────────────────────────────
 function setupModals() {
   document.getElementById('closeSubmitModal')?.addEventListener('click',  () => closeModal('submitQuestModal'));
   document.getElementById('cancelSubmitModal')?.addEventListener('click', () => closeModal('submitQuestModal'));
-  document.getElementById('proofFile')?.addEventListener('change', e => handleFilePreview(e.target.files[0], 'previewImg', 'uploadPreview', 'confirmSubmitQuest'));
+  document.getElementById('proofFile')?.addEventListener('change', e => handleFilePreview(e.target.files[0]));
   document.getElementById('confirmSubmitQuest')?.addEventListener('click', submitQuest);
 
   document.getElementById('closeMapModal')?.addEventListener('click',  () => closeModal('submitMapModal'));
   document.getElementById('cancelMapModal')?.addEventListener('click', () => closeModal('submitMapModal'));
-  document.getElementById('mapProofFile')?.addEventListener('change', e => handleFilePreview(e.target.files[0], 'mapPreviewImg', 'mapUploadPreview', 'confirmSubmitMap'));
   document.getElementById('confirmSubmitMap')?.addEventListener('click', submitMap);
 }
 
 function openModal(id)  { document.getElementById(id)?.classList.add('open'); }
 function closeModal(id) { document.getElementById(id)?.classList.remove('open'); }
 
-window.openSubmitModal = function(questId) {
+window.openSubmitModal = function(questId, imageRequired = false) {
   if (isMaintenanceTime()) { showToast('Sistema em manutenção (01:30–02:00). Tente em breve!', 'warning'); return; }
-  document.getElementById('submitQuestId').value  = questId;
-  document.getElementById('proofFile').value       = '';
-  document.getElementById('uploadPreview').style.display = 'none';
-  document.getElementById('confirmSubmitQuest').disabled = true;
+  document.getElementById('submitQuestId').value   = questId;
+  document.getElementById('questImageRequired').value = imageRequired ? 'true' : 'false';
+
+  // Reset
+  const urlInput = document.getElementById('proofUrlInput');
+  if (urlInput) urlInput.value = '';
+  const fileInput = document.getElementById('proofFile');
+  if (fileInput) fileInput.value = '';
+  const preview = document.getElementById('uploadPreview');
+  if (preview) preview.style.display = 'none';
+
+  // Se exige comprovante de imagem → abre na aba upload
+  if (imageRequired) {
+    switchProofTab('file');
+  } else {
+    switchProofTab('url');
+  }
+
+  const desc = document.getElementById('questProofDesc');
+  if (desc) {
+    desc.textContent = imageRequired
+      ? 'Envie uma imagem como comprovante. Será analisado pelo admin.'
+      : 'Cole o link do screenshot (prnt.sc, imgur…) ou faça upload de uma imagem.';
+  }
+
   openModal('submitQuestModal');
 };
 
-window.openMapModal = function(mapId) {
-  document.getElementById('submitMapId').value    = mapId;
-  document.getElementById('mapProofFile').value   = '';
-  document.getElementById('mapUploadPreview').style.display = 'none';
-  document.getElementById('confirmSubmitMap').disabled = true;
+window.openUserMapSubmitModal = function() {
+  document.getElementById('mapSubmitTitle').value       = '';
+  document.getElementById('mapSubmitDescription').value = '';
+  document.getElementById('mapSubmitType').value        = 'adventure';
+  document.getElementById('mapSubmitDownload').value    = '';
+  document.getElementById('mapSubmitImageUrl').value    = '';
   openModal('submitMapModal');
 };
 
@@ -509,17 +658,15 @@ window.likeMapBtn = async function(mapId) {
   }
 };
 
-function handleFilePreview(file, previewImgId, previewWrapId, confirmBtnId) {
+function handleFilePreview(file) {
   if (!file) return;
   if (file.size > 2 * 1024 * 1024) { showToast('Imagem muito grande! Máximo: 2MB', 'error'); return; }
   const reader = new FileReader();
   reader.onload = e => {
-    const img  = document.getElementById(previewImgId);
-    const wrap = document.getElementById(previewWrapId);
-    const btn  = document.getElementById(confirmBtnId);
+    const img  = document.getElementById('previewImg');
+    const wrap = document.getElementById('uploadPreview');
     if (img)  img.src = e.target.result;
     if (wrap) wrap.style.display = 'block';
-    if (btn)  btn.disabled = false;
   };
   reader.readAsDataURL(file);
 }
@@ -527,13 +674,37 @@ function handleFilePreview(file, previewImgId, previewWrapId, confirmBtnId) {
 async function submitQuest() {
   const btn     = document.getElementById('confirmSubmitQuest');
   const questId = document.getElementById('submitQuestId')?.value;
-  const file    = document.getElementById('proofFile')?.files[0];
-  if (!questId || !file) return;
+  const imgReq  = document.getElementById('questImageRequired')?.value === 'true';
+  if (!questId) return;
+
+  // Determina qual aba está ativa para obter o proof
+  const activeTab = document.querySelector('.proof-tab.active')?.dataset?.tab || 'url';
+  let proofUrl = null;
+
+  if (activeTab === 'url') {
+    proofUrl = document.getElementById('proofUrlInput')?.value?.trim();
+    if (!proofUrl) {
+      showToast('Cole o link do screenshot antes de enviar', 'warning');
+      return;
+    }
+  } else {
+    // file upload
+    const file = document.getElementById('proofFile')?.files[0];
+    if (!file) {
+      showToast('Selecione uma imagem antes de enviar', 'warning');
+      return;
+    }
+    try {
+      proofUrl = await uploadProofImage(file);
+    } catch (e) {
+      showToast(e.message, 'error');
+      return;
+    }
+  }
 
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enviando…';
   try {
-    const proofUrl = await uploadProofImage(file);
     await createSubmission(currentUser.id, questId, proofUrl);
     closeModal('submitQuestModal');
     showToast('Comprovante enviado! Aguarde a aprovação do admin.', 'success');
@@ -549,21 +720,25 @@ async function submitQuest() {
 
 async function submitMap() {
   const btn   = document.getElementById('confirmSubmitMap');
-  const mapId = document.getElementById('submitMapId')?.value;
-  const file  = document.getElementById('mapProofFile')?.files[0];
-  if (!mapId || !file) return;
+  const title = document.getElementById('mapSubmitTitle')?.value?.trim();
+  if (!title) { showToast('Título do mapa é obrigatório', 'warning'); return; }
 
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enviando…';
   try {
-    const proofUrl = await uploadProofImage(file);
-    await createMapSubmission(currentUser.id, mapId, proofUrl);
+    await submitMapByUser(currentUser.id, {
+      title,
+      description:  document.getElementById('mapSubmitDescription')?.value?.trim(),
+      type:         document.getElementById('mapSubmitType')?.value || 'adventure',
+      download_url: document.getElementById('mapSubmitDownload')?.value?.trim() || null,
+      image_url:    document.getElementById('mapSubmitImageUrl')?.value?.trim() || null,
+    });
     closeModal('submitMapModal');
-    showToast('Mapa enviado para análise!', 'success');
+    showToast('Mapa enviado para análise! O admin irá revisar em breve.', 'success');
   } catch (err) {
     showToast(err.message || 'Erro ao enviar mapa', 'error');
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar';
+    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar para Análise';
   }
 }

@@ -8,6 +8,56 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+    /* ── Emoji Picker ───────────────────────────────────────── */
+    .emoji-picker-wrap { position:relative; }
+    .emoji-grid {
+      display:none; position:absolute; top:100%; left:0; z-index:200;
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:var(--radius-md); padding:8px;
+      display:none; flex-wrap:wrap; gap:4px; width:260px; max-height:200px;
+      overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.5);
+    }
+    .emoji-grid.open { display:flex; }
+    .emoji-btn {
+      width:36px; height:36px; font-size:1.3rem; background:none;
+      border:1px solid transparent; border-radius:var(--radius-sm);
+      cursor:pointer; display:flex; align-items:center; justify-content:center;
+      transition:.15s;
+    }
+    .emoji-btn:hover { background:var(--bg-hover); border-color:var(--border); }
+
+    /* ── Quest modal proof input ────────────────────────────── */
+    .proof-input-tabs { display:flex; gap:8px; margin-bottom:12px; }
+    .proof-tab {
+      flex:1; padding:8px 12px; font-size:.85rem; font-family:var(--font-body);
+      background:var(--bg-input); border:1px solid var(--border);
+      border-radius:var(--radius-sm); cursor:pointer; color:var(--text-secondary);
+      transition:.15s; text-align:center;
+    }
+    .proof-tab.active { background:var(--gold-dark); border-color:var(--gold); color:var(--bg-primary); font-weight:700; }
+    .proof-panel { display:none; }
+    .proof-panel.active { display:block; }
+
+    /* ── Cooldown badge ─────────────────────────────────────── */
+    .cooldown-badge {
+      display:inline-flex; align-items:center; gap:4px;
+      font-size:.72rem; color:var(--orange); background:rgba(249,115,22,.12);
+      border:1px solid rgba(249,115,22,.3); border-radius:20px;
+      padding:2px 8px; margin-top:4px;
+    }
+
+    /* ── Map submit modal ───────────────────────────────────── */
+    .map-submit-section { margin-bottom:12px; }
+    .map-submit-section label { font-size:.8rem; color:var(--text-secondary); margin-bottom:4px; display:block; }
+
+    /* ── My Quest timestamps ────────────────────────────────── */
+    .my-quest-timestamps {
+      font-size:.72rem; color:var(--text-muted); margin-top:2px;
+      display:flex; flex-wrap:wrap; gap:8px;
+    }
+    .my-quest-timestamps span { display:flex; align-items:center; gap:3px; }
+  </style>
 </head>
 <body class="dashboard-page">
 
@@ -23,7 +73,6 @@
     <div class="sidebar-user">
       <div class="user-avatar-wrap">
         <div class="user-avatar" id="sidebarAvatar">?</div>
-        <!-- Sem prefixo "Nv" — só o número do nível -->
         <div class="user-level-badge" id="sidebarLevelBadge">1</div>
       </div>
       <div class="user-info">
@@ -118,7 +167,12 @@
 
     <!-- PAGE: MAPS -->
     <div class="page" id="page-maps">
-      <div class="page-header"><h2 class="page-title"><i class="fas fa-map"></i> Mapas</h2></div>
+      <div class="page-header">
+        <h2 class="page-title"><i class="fas fa-map"></i> Mapas</h2>
+        <button class="btn-primary" style="font-size:.8rem;padding:8px 14px" onclick="openUserMapSubmitModal()">
+          <i class="fas fa-plus"></i> Enviar Mapa
+        </button>
+      </div>
       <div class="filter-bar" id="mapsFilterBar">
         <button class="filter-btn active" data-filter="all"><i class="fas fa-th"></i> Todos</button>
         <button class="filter-btn" data-filter="adventure"><i class="fas fa-mountain"></i> Aventura</button>
@@ -165,7 +219,6 @@
       <div class="profile-card">
         <div class="profile-avatar-wrap">
           <div class="profile-avatar" id="profileAvatar">?</div>
-          <!-- Nível sem "Nv" — só número -->
           <div class="profile-level" id="profileLevel">1</div>
         </div>
         <div class="profile-details">
@@ -180,11 +233,28 @@
           <label><i class="fas fa-signature"></i> Nome de Exibição <small>(aparece no ranking e chat)</small></label>
           <input type="text" id="editProfileNickname" placeholder="Seu apelido de exibição" maxlength="30"/>
         </div>
+
+        <!-- Avatar: emoji picker + URL opcional -->
         <div class="form-group">
-          <label><i class="fas fa-image"></i> URL do Avatar <small>(link de imagem ou emoji)</small></label>
-          <input type="text" id="editAvatarUrl" placeholder="https://...imagem.png  ou  🐾"/>
+          <label><i class="fas fa-smile"></i> Ícone / Avatar</label>
+          <div class="emoji-picker-wrap">
+            <div style="display:flex;gap:8px;align-items:center">
+              <div id="emojiPreview" style="width:44px;height:44px;font-size:1.8rem;display:flex;align-items:center;justify-content:center;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm)">🐾</div>
+              <button type="button" class="btn-secondary" id="toggleEmojiPicker" style="font-size:.8rem;padding:8px 12px">
+                <i class="fas fa-icons"></i> Escolher Emoji
+              </button>
+              <span style="color:var(--text-muted);font-size:.8rem">ou</span>
+              <input type="text" id="editAvatarUrl" placeholder="https://…imagem.png" style="flex:1" />
+            </div>
+            <!-- Grid de emojis selecionáveis -->
+            <div class="emoji-grid" id="emojiGrid">
+              <!-- emojis populados por JS -->
+            </div>
+          </div>
+          <small style="color:var(--text-muted);margin-top:4px;display:block">Escolha um emoji OU cole uma URL de imagem</small>
         </div>
-        <!-- Campo nickname técnico (somente leitura, apenas referência) -->
+
+        <!-- Nickname único (somente leitura) -->
         <div class="form-group">
           <label style="opacity:.6"><i class="fas fa-at"></i> Nickname único <small>(não editável após o cadastro)</small></label>
           <input type="text" id="editNickname" placeholder="nickname" readonly style="opacity:.5;cursor:not-allowed"/>
@@ -194,56 +264,105 @@
     </div>
   </main>
 
-  <!-- MODAL: ENVIO DE COMPROVANTE (Quest) -->
+  <!-- ============================================================ -->
+  <!-- MODAL: ENVIO DE COMPROVANTE (Quest)                           -->
+  <!-- Aceita URL de print (prnt.sc) OU upload de imagem             -->
+  <!-- ============================================================ -->
   <div class="modal-overlay" id="submitQuestModal">
     <div class="modal-box">
       <div class="modal-header">
         <h3 class="modal-title"><i class="fas fa-upload"></i> Enviar Comprovante</h3>
         <button class="modal-close" id="closeSubmitModal"><i class="fas fa-times"></i></button>
       </div>
-      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">
-        Envie um print ou foto como comprovante. Será analisado pelo admin.
+      <p id="questProofDesc" style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">
+        Envie um link de screenshot (prnt.sc, imgur…) como comprovante. Será analisado pelo admin.
       </p>
       <input type="hidden" id="submitQuestId"/>
-      <div class="upload-area" id="uploadArea">
-        <input type="file" id="proofFile" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"/>
-        <i class="fas fa-cloud-upload-alt"></i>
-        <p>Clique ou arraste a imagem aqui</p>
-        <small>JPEG, PNG, GIF, WEBP – máx. 2MB</small>
+      <input type="hidden" id="questImageRequired" value="false"/>
+
+      <!-- Tabs: URL (padrão) | Upload de arquivo (se image_required) -->
+      <div class="proof-input-tabs" id="proofTabs">
+        <button class="proof-tab active" data-tab="url" onclick="switchProofTab('url')"><i class="fas fa-link"></i> Link de Print</button>
+        <button class="proof-tab" data-tab="file" onclick="switchProofTab('file')"><i class="fas fa-upload"></i> Upload</button>
       </div>
-      <div class="upload-preview" id="uploadPreview" style="display:none">
-        <img id="previewImg" src="" alt="Preview" style="max-width:100%;border-radius:var(--radius-md)"/>
+
+      <!-- URL panel -->
+      <div class="proof-panel active" id="proofPanelUrl">
+        <div class="form-group" style="margin-bottom:0">
+          <label style="font-size:.8rem">Link do screenshot <small>(ex: https://prnt.sc/xxxxx ou https://imgur.com/…)</small></label>
+          <input type="url" id="proofUrlInput" placeholder="https://prnt.sc/xxxxx" style="width:100%"/>
+        </div>
       </div>
+
+      <!-- File panel -->
+      <div class="proof-panel" id="proofPanelFile">
+        <div class="upload-area" id="uploadArea">
+          <input type="file" id="proofFile" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"/>
+          <i class="fas fa-cloud-upload-alt"></i>
+          <p>Clique ou arraste a imagem aqui</p>
+          <small>JPEG, PNG, GIF, WEBP – máx. 2MB</small>
+        </div>
+        <div class="upload-preview" id="uploadPreview" style="display:none">
+          <img id="previewImg" src="" alt="Preview" style="max-width:100%;border-radius:var(--radius-md)"/>
+        </div>
+      </div>
+
       <div class="modal-footer">
         <button class="btn-secondary" id="cancelSubmitModal">Cancelar</button>
-        <button class="btn-primary" id="confirmSubmitQuest" disabled><i class="fas fa-paper-plane"></i> Enviar</button>
+        <button class="btn-primary" id="confirmSubmitQuest"><i class="fas fa-paper-plane"></i> Enviar</button>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: ENVIO DE MAPA -->
+  <!-- ============================================================ -->
+  <!-- MODAL: SUBMETER MAPA (Usuário envia para aprovação)           -->
+  <!-- ============================================================ -->
   <div class="modal-overlay" id="submitMapModal">
-    <div class="modal-box">
+    <div class="modal-box" style="max-width:520px">
       <div class="modal-header">
         <h3 class="modal-title"><i class="fas fa-map-marked-alt"></i> Submeter Mapa</h3>
         <button class="modal-close" id="closeMapModal"><i class="fas fa-times"></i></button>
       </div>
       <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">
-        Envie um screenshot do mapa utilizado.
+        Preencha os dados do seu mapa. Após aprovação pelo admin, ele aparecerá na lista de Mapas com as recompensas definidas.
       </p>
-      <input type="hidden" id="submitMapId"/>
-      <div class="upload-area" id="mapUploadArea">
-        <input type="file" id="mapProofFile" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"/>
-        <i class="fas fa-cloud-upload-alt"></i>
-        <p>Clique ou arraste a imagem aqui</p>
-        <small>JPEG, PNG – máx. 2MB</small>
+
+      <div class="map-submit-section">
+        <label>Título do Mapa *</label>
+        <input type="text" id="mapSubmitTitle" placeholder="Ex: Dungeon do Dragão" maxlength="80" style="width:100%"/>
       </div>
-      <div class="upload-preview" id="mapUploadPreview" style="display:none">
-        <img id="mapPreviewImg" src="" alt="Preview" style="max-width:100%;border-radius:var(--radius-md)"/>
+      <div class="map-submit-section">
+        <label>Descrição</label>
+        <textarea id="mapSubmitDescription" placeholder="Descreva o mapa, dificuldade, quantidade de jogadores…" style="width:100%;height:70px"></textarea>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="map-submit-section">
+          <label>Tipo de Mapa</label>
+          <select id="mapSubmitType" style="width:100%">
+            <option value="adventure">🗺️ Aventura</option>
+            <option value="pvp">⚔️ PvP</option>
+            <option value="city">🏙️ Cidade</option>
+            <option value="dungeon">🏰 Dungeon</option>
+            <option value="lucky">🍀 Lucky Block</option>
+            <option value="event">🎉 Evento</option>
+            <option value="survival">🌿 Survival</option>
+            <option value="parkour">🏃 Parkour</option>
+            <option value="custom">⭐ Customizado</option>
+          </select>
+        </div>
+        <div class="map-submit-section">
+          <label>URL de Download</label>
+          <input type="url" id="mapSubmitDownload" placeholder="https://…" style="width:100%"/>
+        </div>
+      </div>
+      <div class="map-submit-section">
+        <label>URL da Screenshot / Capa <small>(opcional — imgur, gyazo, prnt.sc…)</small></label>
+        <input type="url" id="mapSubmitImageUrl" placeholder="https://…" style="width:100%"/>
+      </div>
+
       <div class="modal-footer">
         <button class="btn-secondary" id="cancelMapModal">Cancelar</button>
-        <button class="btn-primary" id="confirmSubmitMap" disabled><i class="fas fa-paper-plane"></i> Enviar</button>
+        <button class="btn-primary" id="confirmSubmitMap"><i class="fas fa-paper-plane"></i> Enviar para Análise</button>
       </div>
     </div>
   </div>

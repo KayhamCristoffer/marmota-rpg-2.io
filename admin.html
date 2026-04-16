@@ -8,6 +8,21 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+    /* ── Map submission approval modal ── */
+    .reward-input-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+    .proof-link-btn {
+      display:inline-flex; align-items:center; gap:6px; padding:6px 12px;
+      font-size:.8rem; background:var(--bg-input); border:1px solid var(--border);
+      border-radius:var(--radius-sm); color:var(--gold); text-decoration:none;
+      transition:.15s; cursor:pointer;
+    }
+    .proof-link-btn:hover { background:var(--bg-hover); }
+    .map-sub-image {
+      width:80px; height:54px; object-fit:cover; border-radius:var(--radius-sm);
+      border:1px solid var(--border); cursor:pointer; flex-shrink:0;
+    }
+  </style>
 </head>
 <body class="dashboard-page">
 
@@ -34,6 +49,7 @@
       <div class="nav-item" onclick="window.location.href='home.html'"><i class="fas fa-home"></i><span>Dashboard</span></div>
       <div class="nav-divider"></div>
       <div class="nav-item active" data-tab="submissions"><i class="fas fa-inbox"></i><span>Submissões</span><span class="nav-badge" id="submissionsBadge">0</span></div>
+      <div class="nav-item" data-tab="map-submissions"><i class="fas fa-map-marked-alt"></i><span>Mapas Enviados</span><span class="nav-badge" id="mapSubmissionsBadge">0</span></div>
       <div class="nav-item" data-tab="quests"><i class="fas fa-scroll"></i><span>Quests</span></div>
       <div class="nav-item" data-tab="maps"><i class="fas fa-map"></i><span>Mapas</span></div>
       <div class="nav-item" data-tab="achievements"><i class="fas fa-medal"></i><span>Conquistas</span></div>
@@ -54,10 +70,18 @@
 
     <div style="padding:28px 32px">
 
-      <!-- SUBMISSÕES -->
+      <!-- SUBMISSÕES DE QUESTS -->
       <div class="admin-panel active" id="panel-submissions">
         <div class="page-header"><h2 class="page-title"><i class="fas fa-inbox"></i> Submissões Pendentes</h2></div>
         <div class="submissions-list" id="submissionsList">
+          <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
+        </div>
+      </div>
+
+      <!-- SUBMISSÕES DE MAPAS (usuário → admin aprova) -->
+      <div class="admin-panel" id="panel-map-submissions">
+        <div class="page-header"><h2 class="page-title"><i class="fas fa-map-marked-alt"></i> Mapas Enviados por Usuários</h2></div>
+        <div class="submissions-list" id="mapSubmissionsList">
           <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
         </div>
       </div>
@@ -138,6 +162,10 @@
         <div class="form-group"><label>Nível Mínimo</label><input type="number" id="questMinLevel" value="1" min="1"/></div>
         <div class="form-group"><label>Recompensa Moedas</label><input type="number" id="questCoins" value="0" min="0"/></div>
         <div class="form-group"><label>Recompensa XP</label><input type="number" id="questXp" value="0" min="0"/></div>
+        <div class="form-group">
+          <label>Cooldown (horas) <small>0 = sem cooldown</small></label>
+          <input type="number" id="questCooldown" value="24" min="0"/>
+        </div>
       </div>
       <div class="form-group"><label>Ícone (emoji)</label><input type="text" id="questIcon" placeholder="⚔️" maxlength="10"/></div>
       <div class="form-group" style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
@@ -145,7 +173,9 @@
           <input type="checkbox" id="questActive" checked style="accent-color:var(--gold);width:16px;height:16px"/> Quest Ativa
         </label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem">
-          <input type="checkbox" id="questImageRequired" style="accent-color:var(--gold);width:16px;height:16px"/> Exige Comprovante
+          <input type="checkbox" id="questImageRequired" style="accent-color:var(--gold);width:16px;height:16px"/>
+          Exige Upload de Imagem
+          <small style="color:var(--text-muted)">(desmarcado = aceita link de print)</small>
         </label>
       </div>
       <div class="modal-footer">
@@ -185,15 +215,15 @@
         <div style="width:56px;height:56px;border-radius:var(--radius-md);background:var(--bg-input);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.8rem" id="mapIconPreview">🗺️</div>
       </div>
 
-      <!-- Ícone customizado (emoji ou URL curta) -->
+      <!-- Ícone customizado -->
       <div class="form-group">
         <label>Ícone Customizado <small>(emoji ou URL — sobrepõe o tipo)</small></label>
         <input type="text" id="mapCustomIcon" placeholder="🗺️  ou  https://…icon.png" oninput="onMapCustomIconChange()"/>
       </div>
 
-      <!-- URL da imagem do mapa -->
+      <!-- URL da imagem -->
       <div class="form-group">
-        <label>URL da Imagem do Mapa <small>(screenshot, capa)</small></label>
+        <label>URL da Imagem / Capa <small>(screenshot, imgur, gyazo…)</small></label>
         <input type="url" id="mapImageUrl" placeholder="https://…imagem.jpg"/>
       </div>
 
@@ -203,15 +233,37 @@
         <div class="form-group"><label>Tokens</label><input type="number" id="mapTokens" value="0" min="0"/></div>
       </div>
       <div class="form-group"><label>URL de Download</label><input type="url" id="mapDownload" placeholder="https://…"/></div>
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem">
-          <input type="checkbox" id="mapImageRequired" style="accent-color:var(--gold);width:16px;height:16px"/>
-          Exige Comprovante para recompensa
-        </label>
-      </div>
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('mapModal')">Cancelar</button>
         <button class="btn-primary" onclick="saveMap()"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: APROVAR MAPA ENVIADO POR USUÁRIO -->
+  <div class="modal-overlay" id="approveMapSubModal">
+    <div class="modal-box" style="max-width:520px">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fas fa-check-circle"></i> Aprovar Mapa</h3>
+        <button class="modal-close" onclick="closeModal('approveMapSubModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="approveMapSubId"/>
+      <div id="approveMapSubInfo" style="margin-bottom:16px;padding:12px;background:var(--bg-input);border-radius:var(--radius-sm);font-size:.85rem;color:var(--text-secondary)"></div>
+      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:12px">
+        Defina as recompensas que o usuário receberá pela aprovação do mapa:
+      </p>
+      <div class="reward-input-row">
+        <div class="form-group"><label>Moedas</label><input type="number" id="approveMapCoins" value="0" min="0"/></div>
+        <div class="form-group"><label>XP</label><input type="number" id="approveMapXp" value="0" min="0"/></div>
+        <div class="form-group"><label>Tokens</label><input type="number" id="approveMapTokens" value="0" min="0"/></div>
+      </div>
+      <div class="form-group">
+        <label>Notas do Admin <small>(opcional)</small></label>
+        <textarea id="approveMapNotes" placeholder="Observações sobre o mapa…" style="height:60px"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('approveMapSubModal')">Cancelar</button>
+        <button class="btn-primary" onclick="confirmApproveMapSub()"><i class="fas fa-check"></i> Aprovar e Publicar</button>
       </div>
     </div>
   </div>
@@ -242,7 +294,7 @@
     </div>
   </div>
 
-  <!-- MODAL: EDITAR USUÁRIO (role + profile_role) -->
+  <!-- MODAL: EDITAR USUÁRIO -->
   <div class="modal-overlay" id="editUserModal">
     <div class="modal-box" style="max-width:420px">
       <div class="modal-header">
@@ -282,7 +334,7 @@
         <h3 class="modal-title"><i class="fas fa-image"></i> Comprovante</h3>
         <button class="modal-close" onclick="closeModal('proofModal')"><i class="fas fa-times"></i></button>
       </div>
-      <div style="text-align:center">
+      <div style="text-align:center" id="proofModalContent">
         <img id="proofModalImg" src="" alt="Comprovante"
           style="max-width:100%;max-height:70vh;border-radius:var(--radius-md);border:1px solid var(--border)"/>
       </div>
