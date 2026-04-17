@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>RPG Quests ⚔️ - Dashboard</title>
+  <title>Toca das Marmotas ⚔️ - Dashboard</title>
   <link rel="stylesheet" href="css/style.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
@@ -12,7 +12,7 @@
     /* ── Emoji Picker ───────────────────────────────────────── */
     .emoji-picker-wrap { position:relative; }
     .emoji-grid {
-      display:none; position:absolute; top:100%; left:0; z-index:200;
+      position:absolute; top:100%; left:0; z-index:200;
       background:var(--bg-card); border:1px solid var(--border);
       border-radius:var(--radius-md); padding:8px;
       display:none; flex-wrap:wrap; gap:4px; width:260px; max-height:200px;
@@ -28,16 +28,7 @@
     .emoji-btn:hover { background:var(--bg-hover); border-color:var(--border); }
 
     /* ── Quest modal proof input ────────────────────────────── */
-    .proof-input-tabs { display:flex; gap:8px; margin-bottom:12px; }
-    .proof-tab {
-      flex:1; padding:8px 12px; font-size:.85rem; font-family:var(--font-body);
-      background:var(--bg-input); border:1px solid var(--border);
-      border-radius:var(--radius-sm); cursor:pointer; color:var(--text-secondary);
-      transition:.15s; text-align:center;
-    }
-    .proof-tab.active { background:var(--gold-dark); border-color:var(--gold); color:var(--bg-primary); font-weight:700; }
-    .proof-panel { display:none; }
-    .proof-panel.active { display:block; }
+    .proof-url-wrap { display:flex; flex-direction:column; gap:8px; }
 
     /* ── Cooldown badge ─────────────────────────────────────── */
     .cooldown-badge {
@@ -57,6 +48,78 @@
       display:flex; flex-wrap:wrap; gap:8px;
     }
     .my-quest-timestamps span { display:flex; align-items:center; gap:3px; }
+
+    /* ── Map detail modal ───────────────────────────────────── */
+    .map-detail-image {
+      width:100%; max-height:220px; object-fit:cover;
+      border-radius:var(--radius-md); margin-bottom:16px;
+      border:1px solid var(--border);
+    }
+    .map-detail-info { display:flex; flex-direction:column; gap:10px; }
+    .map-detail-row  { display:flex; gap:24px; flex-wrap:wrap; }
+    .map-detail-stat { display:flex; align-items:center; gap:6px; font-size:.85rem; color:var(--text-secondary); }
+    .map-detail-stat i { color:var(--gold); }
+    .map-detail-rewards { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+    .map-detail-reward-badge {
+      display:inline-flex; align-items:center; gap:4px; font-size:.8rem;
+      background:rgba(212,175,55,.15); border:1px solid rgba(212,175,55,.3);
+      border-radius:12px; padding:3px 10px; color:var(--gold);
+    }
+    .map-creator-tag { font-size:.78rem; color:var(--text-muted); display:flex; align-items:center; gap:4px; }
+
+    /* ── Shop ───────────────────────────────────────────────── */
+    .shop-grid {
+      display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px;
+    }
+    .shop-item-card {
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:var(--radius-md); padding:16px; display:flex;
+      flex-direction:column; gap:8px; position:relative;
+      transition:border-color .2s,box-shadow .2s;
+    }
+    .shop-item-card:hover { border-color:var(--gold-dark); box-shadow:0 4px 16px rgba(212,175,55,.15); }
+    .shop-item-icon {
+      width:56px; height:56px; border-radius:var(--radius-md);
+      background:var(--bg-input); border:1px solid var(--border);
+      display:flex; align-items:center; justify-content:center;
+      font-size:1.8rem; overflow:hidden;
+    }
+    .shop-item-name  { font-family:var(--font-title); color:var(--text-primary); font-size:.95rem; }
+    .shop-item-desc  { font-size:.78rem; color:var(--text-muted); line-height:1.4; }
+    .shop-item-price { display:flex; gap:8px; flex-wrap:wrap; }
+    .shop-price-tag  {
+      display:inline-flex; align-items:center; gap:4px; font-size:.8rem;
+      background:rgba(212,175,55,.12); border:1px solid rgba(212,175,55,.25);
+      border-radius:10px; padding:2px 8px; color:var(--gold);
+    }
+    .shop-item-stock { font-size:.72rem; color:var(--text-muted); }
+    .shop-item-stock.low  { color:var(--orange); }
+    .shop-item-stock.out  { color:var(--red); }
+    .btn-buy-item {
+      width:100%; padding:8px; border:none; border-radius:var(--radius-sm);
+      background:var(--gold-dark); color:var(--bg-primary);
+      font-family:var(--font-title); font-size:.8rem; cursor:pointer;
+      transition:.15s; display:flex; align-items:center; justify-content:center; gap:6px;
+    }
+    .btn-buy-item:hover:not(:disabled) { background:var(--gold); }
+    .btn-buy-item:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-fav-item {
+      position:absolute; top:10px; right:10px;
+      background:none; border:none; cursor:pointer;
+      color:var(--text-muted); font-size:1rem; transition:.15s;
+    }
+    .btn-fav-item.faved { color:#ef4444; }
+    .btn-fav-item:hover { color:#ef4444; }
+    .shop-filter-bar { margin-bottom:1rem; }
+    .my-purchases-list { display:flex; flex-direction:column; gap:10px; }
+    .purchase-item {
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:var(--radius-sm); padding:12px 16px;
+      display:flex; align-items:center; gap:12px; font-size:.85rem;
+    }
+    .purchase-item .item-icon { font-size:1.5rem; }
+    .purchase-item .item-name { font-family:var(--font-title); color:var(--text-primary); }
+    .purchase-item .item-meta { font-size:.75rem; color:var(--text-muted); }
   </style>
 </head>
 <body class="dashboard-page">
@@ -67,7 +130,7 @@
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <div class="sidebar-logo"><i class="fas fa-shield-halved"></i><span>RPG Quests</span></div>
+      <div class="sidebar-logo"><i class="fas fa-shield-halved"></i><span>Toca das Marmotas</span></div>
       <button class="sidebar-toggle" id="sidebarToggle"><i class="fas fa-chevron-left"></i></button>
     </div>
     <div class="sidebar-user">
@@ -91,6 +154,7 @@
       <div class="nav-item" data-page="my-quests"><i class="fas fa-tasks"></i><span>Minhas Quests</span></div>
       <div class="nav-item" data-page="maps"><i class="fas fa-map"></i><span>Mapas</span></div>
       <div class="nav-item" data-page="ranking"><i class="fas fa-trophy"></i><span>Ranking</span></div>
+      <div class="nav-item" data-page="shop"><i class="fas fa-store"></i><span>Loja</span></div>
       <div class="nav-item" data-page="profile"><i class="fas fa-user"></i><span>Perfil</span></div>
       <div class="nav-divider"></div>
       <div class="nav-item nav-admin" id="navAdmin" style="display:none" onclick="window.location.href='admin.html'"><i class="fas fa-cog"></i><span>Painel Admin</span></div>
@@ -192,24 +256,52 @@
         <h2 class="page-title"><i class="fas fa-trophy"></i> Ranking</h2>
         <span id="rankingMetricLabel" class="supabase-badge">🪙 Moedas</span>
       </div>
-
-      <!-- Filtro de período -->
       <div class="filter-bar" style="margin-bottom:.5rem">
         <button class="filter-btn active" data-period="total"><i class="fas fa-infinity"></i> Total</button>
         <button class="filter-btn" data-period="daily"><i class="fas fa-sun"></i> Diário</button>
         <button class="filter-btn" data-period="weekly"><i class="fas fa-calendar-week"></i> Semanal</button>
         <button class="filter-btn" data-period="monthly"><i class="fas fa-calendar-alt"></i> Mensal</button>
       </div>
-
-      <!-- Toggle Moedas / Tokens -->
       <div class="filter-bar" style="margin-bottom:1.5rem">
         <button class="filter-btn active" data-metric="coins"><i class="fas fa-coins"></i> Moedas</button>
         <button class="filter-btn" data-metric="tokens"><i class="fas fa-gem"></i> Tokens</button>
       </div>
-
       <div class="ranking-podium" id="rankingPodium"></div>
       <div class="ranking-list" id="rankingList">
         <div class="empty-state"><i class="fas fa-trophy"></i><h3>Carregando ranking…</h3></div>
+      </div>
+    </div>
+
+    <!-- PAGE: SHOP (Loja) -->
+    <div class="page" id="page-shop">
+      <div class="page-header">
+        <h2 class="page-title"><i class="fas fa-store"></i> Loja</h2>
+      </div>
+      <!-- Sub-tabs: Itens | Meus Pedidos | Favoritos -->
+      <div class="filter-bar shop-filter-bar">
+        <button class="filter-btn active" data-shop-tab="items"><i class="fas fa-th"></i> Itens</button>
+        <button class="filter-btn" data-shop-tab="purchases"><i class="fas fa-receipt"></i> Meus Pedidos</button>
+        <button class="filter-btn" data-shop-tab="favorites"><i class="fas fa-heart"></i> Favoritos</button>
+      </div>
+      <!-- User balance reminder -->
+      <div id="shopBalanceBar" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:1rem;font-size:.85rem;color:var(--text-secondary)">
+        <span><i class="fas fa-coins" style="color:var(--gold)"></i> <strong id="shopCoins">0</strong> moedas</span>
+        <span><i class="fas fa-gem" style="color:var(--purple-light)"></i> <strong id="shopTokens">0</strong> tokens</span>
+      </div>
+      <div id="shopTabItems">
+        <div class="shop-grid" id="shopGrid">
+          <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando loja…</h3></div>
+        </div>
+      </div>
+      <div id="shopTabPurchases" style="display:none">
+        <div class="my-purchases-list" id="shopPurchasesList">
+          <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
+        </div>
+      </div>
+      <div id="shopTabFavorites" style="display:none">
+        <div class="shop-grid" id="shopFavoritesGrid">
+          <div class="empty-state"><i class="fas fa-heart"></i><h3>Nenhum favorito ainda</h3></div>
+        </div>
       </div>
     </div>
 
@@ -246,10 +338,7 @@
               <span style="color:var(--text-muted);font-size:.8rem">ou</span>
               <input type="text" id="editAvatarUrl" placeholder="https://…imagem.png" style="flex:1" />
             </div>
-            <!-- Grid de emojis selecionáveis -->
-            <div class="emoji-grid" id="emojiGrid">
-              <!-- emojis populados por JS -->
-            </div>
+            <div class="emoji-grid" id="emojiGrid"></div>
           </div>
           <small style="color:var(--text-muted);margin-top:4px;display:block">Escolha um emoji OU cole uma URL de imagem</small>
         </div>
@@ -265,49 +354,27 @@
   </main>
 
   <!-- ============================================================ -->
-  <!-- MODAL: ENVIO DE COMPROVANTE (Quest)                           -->
-  <!-- Aceita URL de print (prnt.sc) OU upload de imagem             -->
+  <!-- MODAL: ENVIO DE COMPROVANTE (Quest) — apenas URL             -->
   <!-- ============================================================ -->
   <div class="modal-overlay" id="submitQuestModal">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 class="modal-title"><i class="fas fa-upload"></i> Enviar Comprovante</h3>
+        <h3 class="modal-title"><i class="fas fa-link"></i> Enviar Comprovante</h3>
         <button class="modal-close" id="closeSubmitModal"><i class="fas fa-times"></i></button>
       </div>
       <p id="questProofDesc" style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">
-        Envie um link de screenshot (prnt.sc, imgur…) como comprovante. Será analisado pelo admin.
+        Cole o link do screenshot (prnt.sc, imgur…) como comprovante.
       </p>
       <input type="hidden" id="submitQuestId"/>
       <input type="hidden" id="questImageRequired" value="false"/>
 
-      <!-- Tabs: URL (padrão) | Upload de arquivo (se image_required) -->
-      <div class="proof-input-tabs" id="proofTabs">
-        <button class="proof-tab active" data-tab="url" onclick="switchProofTab('url')"><i class="fas fa-link"></i> Link de Print</button>
-        <button class="proof-tab" data-tab="file" onclick="switchProofTab('file')"><i class="fas fa-upload"></i> Upload</button>
+      <!-- Só URL — sem upload -->
+      <div class="proof-url-wrap">
+        <label style="font-size:.8rem;color:var(--text-secondary)">Link do screenshot <small>(ex: https://prnt.sc/xxxxx)</small></label>
+        <input type="url" id="proofUrlInput" placeholder="https://prnt.sc/xxxxx" style="width:100%"/>
       </div>
 
-      <!-- URL panel -->
-      <div class="proof-panel active" id="proofPanelUrl">
-        <div class="form-group" style="margin-bottom:0">
-          <label style="font-size:.8rem">Link do screenshot <small>(ex: https://prnt.sc/xxxxx ou https://imgur.com/…)</small></label>
-          <input type="url" id="proofUrlInput" placeholder="https://prnt.sc/xxxxx" style="width:100%"/>
-        </div>
-      </div>
-
-      <!-- File panel -->
-      <div class="proof-panel" id="proofPanelFile">
-        <div class="upload-area" id="uploadArea">
-          <input type="file" id="proofFile" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"/>
-          <i class="fas fa-cloud-upload-alt"></i>
-          <p>Clique ou arraste a imagem aqui</p>
-          <small>JPEG, PNG, GIF, WEBP – máx. 2MB</small>
-        </div>
-        <div class="upload-preview" id="uploadPreview" style="display:none">
-          <img id="previewImg" src="" alt="Preview" style="max-width:100%;border-radius:var(--radius-md)"/>
-        </div>
-      </div>
-
-      <div class="modal-footer">
+      <div class="modal-footer" style="margin-top:1rem">
         <button class="btn-secondary" id="cancelSubmitModal">Cancelar</button>
         <button class="btn-primary" id="confirmSubmitQuest"><i class="fas fa-paper-plane"></i> Enviar</button>
       </div>
@@ -315,7 +382,7 @@
   </div>
 
   <!-- ============================================================ -->
-  <!-- MODAL: SUBMETER MAPA (Usuário envia para aprovação)           -->
+  <!-- MODAL: SUBMETER MAPA (Usuário envia para aprovação)          -->
   <!-- ============================================================ -->
   <div class="modal-overlay" id="submitMapModal">
     <div class="modal-box" style="max-width:520px">
@@ -324,9 +391,8 @@
         <button class="modal-close" id="closeMapModal"><i class="fas fa-times"></i></button>
       </div>
       <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:1rem">
-        Preencha os dados do seu mapa. Após aprovação pelo admin, ele aparecerá na lista de Mapas com as recompensas definidas.
+        Preencha os dados do seu mapa. Após aprovação pelo admin, ele aparecerá na lista com as recompensas definidas.
       </p>
-
       <div class="map-submit-section">
         <label>Título do Mapa *</label>
         <input type="text" id="mapSubmitTitle" placeholder="Ex: Dungeon do Dragão" maxlength="80" style="width:100%"/>
@@ -359,10 +425,47 @@
         <label>URL da Screenshot / Capa <small>(opcional — imgur, gyazo, prnt.sc…)</small></label>
         <input type="url" id="mapSubmitImageUrl" placeholder="https://…" style="width:100%"/>
       </div>
-
       <div class="modal-footer">
         <button class="btn-secondary" id="cancelMapModal">Cancelar</button>
         <button class="btn-primary" id="confirmSubmitMap"><i class="fas fa-paper-plane"></i> Enviar para Análise</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: DETALHES DO MAPA                                      -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="mapDetailModal">
+    <div class="modal-box" style="max-width:600px">
+      <div class="modal-header">
+        <h3 class="modal-title" id="mapDetailTitle"><i class="fas fa-map"></i> Detalhes do Mapa</h3>
+        <button class="modal-close" onclick="closeModal('mapDetailModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div id="mapDetailBody">
+        <!-- preenchido por JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: COMPRAR ITEM DA LOJA                                  -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="buyItemModal">
+    <div class="modal-box" style="max-width:420px">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fas fa-shopping-cart"></i> Confirmar Compra</h3>
+        <button class="modal-close" onclick="closeModal('buyItemModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="buyItemId"/>
+      <div id="buyItemInfo" style="margin-bottom:16px;padding:16px;background:var(--bg-input);border-radius:var(--radius-sm)">
+        <!-- preenchido por JS -->
+      </div>
+      <p style="font-size:.85rem;color:var(--text-secondary);margin-bottom:8px">
+        Confirme a compra. Seu saldo será descontado automaticamente.
+      </p>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('buyItemModal')">Cancelar</button>
+        <button class="btn-primary" id="confirmBuyBtn" onclick="confirmBuyItem()"><i class="fas fa-check"></i> Confirmar</button>
       </div>
     </div>
   </div>

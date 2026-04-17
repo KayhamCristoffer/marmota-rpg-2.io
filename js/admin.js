@@ -1,12 +1,10 @@
 // ============================================================
-// ADMIN.JS v4 — Painel Administrativo com Supabase
-// Changelog v4:
-//  - Nova aba: Mapas Enviados (map_submissions pendentes)
-//  - Aprovar mapa: define recompensas → cria entry em maps
-//  - Rejeitar mapa com notas
-//  - Proof modal: detecta se é URL ou base64
-//  - Quest: salva cooldown_hours; image_required correto
-//  - setUserRole: sempre envia profile_role
+// ADMIN.JS v5 — Toca das Marmotas - Painel Administrativo
+// Changelog v5:
+//  - Shop (Loja): CRUD de itens, controle de estoque, histórico de compras
+//  - Rankings: visualizador histórico por período
+//  - Conquistas: category_type, maps_required, event_start/end, one_time_redeem
+//  - Renomeado para Toca das Marmotas
 // ============================================================
 import { requireAuth, showToast, renderUserInSidebar } from '../supabase/session-manager.js';
 import {
@@ -16,7 +14,9 @@ import {
   getAllAchievements, createAchievement, updateAchievement, deleteAchievement,
   getAllUsers, setUserRole,
   getPendingMapSubmissions, approveMapSubmission, rejectMapSubmission,
-  resetDailyRanking, resetWeeklyRanking, resetMonthlyRanking
+  resetDailyRanking, resetWeeklyRanking, resetMonthlyRanking,
+  getRankingHistory,
+  getAllShopItems, createShopItem, updateShopItem, deleteShopItem, getAllPurchases
 } from '../supabase/database.js';
 
 // ── Map type icons ─────────────────────────────────────────────
@@ -25,7 +25,6 @@ const MAP_ICONS = {
   lucky: '🍀', event: '🎉', survival: '🌿', parkour: '🏃', custom: '⭐'
 };
 
-// ── Role labels ────────────────────────────────────────────────
 const ROLE_LABELS = { user: 'Marmotinha', moderator: 'Moderador', admin: 'Admin' };
 
 let currentTab = 'submissions';
@@ -82,6 +81,7 @@ function switchTab(tab) {
     maps:             'Mapas',
     achievements:     'Conquistas',
     users:            'Usuários',
+    shop:             'Loja',
     rankings:         'Rankings'
   };
   const tt = document.getElementById('topbarTitle');
@@ -95,6 +95,8 @@ async function loadPanel(tab) {
   if (tab === 'maps')             await loadMaps();
   if (tab === 'achievements')     await loadAchievements();
   if (tab === 'users')            await loadUsers();
+  if (tab === 'shop')             await loadShopItems();
+  if (tab === 'rankings')         await loadRankingHistory();
 }
 
 // ── QUEST SUBMISSIONS ─────────────────────────────────────────
@@ -112,16 +114,10 @@ async function loadSubmissions() {
     }
     list.innerHTML = subs.map(s => {
       const displayName = s.users?.profile_nickname || s.users?.nickname || 'Usuário';
-      // proof_url pode ser URL externa (prnt.sc) ou base64
       let proofHtml = '<span style="color:var(--text-muted);font-size:.8rem">Sem comprovante</span>';
       if (s.proof_url) {
-        if (s.proof_url.startsWith('data:image') || s.proof_url.startsWith('http')) {
-          proofHtml = `<div style="cursor:pointer" onclick="viewProof('${s.id}')" title="Ver comprovante">
-            ${s.proof_url.startsWith('data:image')
-              ? `<img src="${s.proof_url}" class="proof-img"/>`
-              : `<a class="proof-link-btn" href="${s.proof_url}" target="_blank"><i class="fas fa-external-link-alt"></i> Ver print</a>`
-            }
-          </div>`;
+        if (s.proof_url.startsWith('data:image')) {
+          proofHtml = `<div style="cursor:pointer" onclick="viewProof('${s.id}')" title="Ver comprovante"><img src="${s.proof_url}" class="proof-img"/></div>`;
         } else {
           proofHtml = `<a class="proof-link-btn" href="${s.proof_url}" target="_blank"><i class="fas fa-external-link-alt"></i> Ver print</a>`;
         }
@@ -129,7 +125,7 @@ async function loadSubmissions() {
       return `<div class="submission-item" id="sub-${s.id}">
         <div style="display:flex;flex-direction:column;gap:4px;flex:1">
           <strong style="font-family:var(--font-title);color:var(--text-primary)">${displayName}</strong>
-          <span style="font-size:.8rem;color:var(--text-secondary)">Quest: ${s.quests?.title || s.quest_id || 'Quest'}</span>
+          <span style="font-size:.8rem;color:var(--text-secondary)">Quest: ${s.quests?.title || 'Quest'}</span>
           <span style="font-size:.75rem;color:var(--text-muted)">${fmtDate(s.submitted_at)} · +${s.quests?.reward_coins || 0} moedas / +${s.quests?.reward_xp || 0} XP</span>
         </div>
         ${proofHtml}
@@ -175,7 +171,6 @@ window.viewProof = function(subId) {
   if (url.startsWith('data:image')) {
     content.innerHTML = `<img src="${url}" alt="Comprovante" style="max-width:100%;max-height:70vh;border-radius:var(--radius-md);border:1px solid var(--border)"/>`;
   } else {
-    // URL externa — mostra link + iframe ou redirecionamento
     content.innerHTML = `
       <p style="margin-bottom:12px;color:var(--text-secondary);font-size:.85rem">Comprovante externo:</p>
       <a href="${url}" target="_blank" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;padding:10px 20px">
@@ -186,7 +181,7 @@ window.viewProof = function(subId) {
   openModal('proofModal');
 };
 
-// ── MAP SUBMISSIONS (usuário enviou, admin aprova) ────────────
+// ── MAP SUBMISSIONS ────────────────────────────────────────────
 async function loadMapSubmissions() {
   const list = document.getElementById('mapSubmissionsList');
   if (!list) return;
@@ -210,19 +205,13 @@ async function loadMapSubmissions() {
         ${imgHtml}
         <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:0">
           <strong style="font-family:var(--font-title);color:var(--text-primary)">${ms.title}</strong>
-          <span style="font-size:.8rem;color:var(--text-secondary)">
-            ${typeIcon} ${ms.type} · enviado por <strong>${userName}</strong>
-          </span>
+          <span style="font-size:.8rem;color:var(--text-secondary)">${typeIcon} ${ms.type} · enviado por <strong>${userName}</strong></span>
           <span style="font-size:.75rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ms.description || '—'}</span>
           <span style="font-size:.72rem;color:var(--text-muted)">${fmtDate(ms.submitted_at)}${ms.download_url ? ` · <a href="${ms.download_url}" target="_blank" style="color:var(--gold)">Download</a>` : ''}</span>
         </div>
         <div class="submission-actions">
-          <button class="btn-approve" onclick="openApproveMapSubModal('${ms.id}','${ms.title.replace(/'/g,"\\'")}')">
-            <i class="fas fa-check"></i> Aprovar
-          </button>
-          <button class="btn-reject" onclick="rejectMapSubConfirm('${ms.id}')">
-            <i class="fas fa-times"></i> Rejeitar
-          </button>
+          <button class="btn-approve" onclick="openApproveMapSubModal('${ms.id}','${ms.title.replace(/'/g,"\\'")}')"><i class="fas fa-check"></i> Aprovar</button>
+          <button class="btn-reject" onclick="rejectMapSubConfirm('${ms.id}')"><i class="fas fa-times"></i> Rejeitar</button>
         </div>
       </div>`;
     }).join('');
@@ -232,11 +221,11 @@ async function loadMapSubmissions() {
 }
 
 window.openApproveMapSubModal = function(mapSubId, title) {
-  document.getElementById('approveMapSubId').value = mapSubId;
-  document.getElementById('approveMapCoins').value = 0;
-  document.getElementById('approveMapXp').value    = 0;
-  document.getElementById('approveMapTokens').value= 0;
-  document.getElementById('approveMapNotes').value = '';
+  document.getElementById('approveMapSubId').value  = mapSubId;
+  document.getElementById('approveMapCoins').value  = 0;
+  document.getElementById('approveMapXp').value     = 0;
+  document.getElementById('approveMapTokens').value = 0;
+  document.getElementById('approveMapNotes').value  = '';
   const info = document.getElementById('approveMapSubInfo');
   if (info) info.innerHTML = `<i class="fas fa-map"></i> <strong>${title}</strong> — defina as recompensas abaixo:`;
   openModal('approveMapSubModal');
@@ -284,7 +273,7 @@ async function loadQuests() {
         <span style="font-size:1.5rem">${q.icon_url || '📜'}</span>
         <div style="flex:1">
           <div style="font-family:var(--font-title);color:var(--text-primary)">${q.title}</div>
-          <div style="font-size:.75rem;color:var(--text-secondary)">${typeLabels[q.type] || q.type} · +${q.reward_coins} moedas · +${q.reward_xp} XP · Nível ${q.min_level}+ · ${q.cooldown_hours || 0}h cd · ${q.image_required ? '📷' : '🔗'} · ${q.is_active ? '<span style="color:var(--green)">Ativa</span>' : '<span style="color:var(--red)">Inativa</span>'}</div>
+          <div style="font-size:.75rem;color:var(--text-secondary)">${typeLabels[q.type] || q.type} · +${q.reward_coins} moedas · +${q.reward_xp} XP · Nível ${q.min_level}+ · ${q.cooldown_hours || 0}h cd · ${q.proof_required ? '🔗 Comprovante' : '✅ Sem prova'} · ${q.is_active ? '<span style="color:var(--green)">Ativa</span>' : '<span style="color:var(--red)">Inativa</span>'}</div>
         </div>
         <div class="admin-item-actions">
           <button class="btn-edit btn-sm" onclick="openQuestModal('${q.id}')"><i class="fas fa-edit"></i></button>
@@ -298,17 +287,17 @@ async function loadQuests() {
 }
 
 window.openQuestModal = async function(questId) {
-  document.getElementById('questTitle').value        = '';
-  document.getElementById('questDescription').value  = '';
-  document.getElementById('questType').value         = 'daily';
-  document.getElementById('questMinLevel').value     = 1;
-  document.getElementById('questCoins').value        = 0;
-  document.getElementById('questXp').value           = 0;
-  document.getElementById('questCooldown').value     = 24;
-  document.getElementById('questActive').checked     = true;
-  document.getElementById('questImageRequired').checked = false;
-  document.getElementById('questEditId').value       = '';
-  document.getElementById('questIcon').value         = '';
+  document.getElementById('questTitle').value          = '';
+  document.getElementById('questDescription').value    = '';
+  document.getElementById('questType').value           = 'daily';
+  document.getElementById('questMinLevel').value       = 1;
+  document.getElementById('questCoins').value          = 0;
+  document.getElementById('questXp').value             = 0;
+  document.getElementById('questCooldown').value       = 24;
+  document.getElementById('questActive').checked       = true;
+  document.getElementById('questProofRequired').checked = false;
+  document.getElementById('questEditId').value         = '';
+  document.getElementById('questIcon').value           = '';
   document.getElementById('questModalTitle').innerHTML = '<i class="fas fa-scroll"></i> Nova Quest';
 
   if (questId) {
@@ -316,18 +305,18 @@ window.openQuestModal = async function(questId) {
       const quests = await getAllQuests();
       const q = quests.find(x => x.id === questId);
       if (q) {
-        document.getElementById('questEditId').value          = q.id;
-        document.getElementById('questTitle').value           = q.title;
-        document.getElementById('questDescription').value     = q.description || '';
-        document.getElementById('questType').value            = q.type;
-        document.getElementById('questMinLevel').value        = q.min_level || 1;
-        document.getElementById('questCoins').value           = q.reward_coins || 0;
-        document.getElementById('questXp').value              = q.reward_xp || 0;
-        document.getElementById('questCooldown').value        = q.cooldown_hours ?? 24;
-        document.getElementById('questActive').checked        = q.is_active;
-        document.getElementById('questImageRequired').checked = q.image_required;
-        document.getElementById('questIcon').value            = q.icon_url || '';
-        document.getElementById('questModalTitle').innerHTML  = '<i class="fas fa-edit"></i> Editar Quest';
+        document.getElementById('questEditId').value           = q.id;
+        document.getElementById('questTitle').value            = q.title;
+        document.getElementById('questDescription').value      = q.description || '';
+        document.getElementById('questType').value             = q.type;
+        document.getElementById('questMinLevel').value         = q.min_level || 1;
+        document.getElementById('questCoins').value            = q.reward_coins || 0;
+        document.getElementById('questXp').value               = q.reward_xp || 0;
+        document.getElementById('questCooldown').value         = q.cooldown_hours ?? 24;
+        document.getElementById('questActive').checked         = q.is_active;
+        document.getElementById('questProofRequired').checked  = q.proof_required;
+        document.getElementById('questIcon').value             = q.icon_url || '';
+        document.getElementById('questModalTitle').innerHTML   = '<i class="fas fa-edit"></i> Editar Quest';
       }
     } catch (e) {}
   }
@@ -345,7 +334,7 @@ window.saveQuest = async function() {
     reward_xp:      parseInt(document.getElementById('questXp').value) || 0,
     cooldown_hours: parseInt(document.getElementById('questCooldown').value) ?? 24,
     is_active:      document.getElementById('questActive').checked,
-    image_required: document.getElementById('questImageRequired').checked,
+    proof_required: document.getElementById('questProofRequired').checked,
     icon_url:       document.getElementById('questIcon').value.trim() || null
   };
   if (!data.title) { showToast('Título é obrigatório', 'warning'); return; }
@@ -364,7 +353,7 @@ window.toggleQuest = async function(id, active) {
 };
 
 window.deleteQuestConfirm = async function(id) {
-  if (!confirm('Deletar esta quest? Esta ação é irreversível.')) return;
+  if (!confirm('Deletar esta quest?')) return;
   try { await deleteQuest(id); showToast('Quest deletada!', 'info'); await loadQuests(); }
   catch (err) { showToast(err.message, 'error'); }
 };
@@ -396,10 +385,10 @@ window.openMapAdminModal = async function(mapId) {
   ['mapTitle', 'mapDescription', 'mapDownload', 'mapImageUrl', 'mapCustomIcon', 'mapEditId'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
-  document.getElementById('mapType').value    = 'adventure';
-  document.getElementById('mapCoins').value   = 0;
-  document.getElementById('mapXp').value      = 0;
-  document.getElementById('mapTokens').value  = 0;
+  document.getElementById('mapType').value   = 'adventure';
+  document.getElementById('mapCoins').value  = 0;
+  document.getElementById('mapXp').value     = 0;
+  document.getElementById('mapTokens').value = 0;
   document.getElementById('mapModalTitle').innerHTML = '<i class="fas fa-map"></i> Novo Mapa';
   updateMapIconPreview('adventure');
 
@@ -408,16 +397,16 @@ window.openMapAdminModal = async function(mapId) {
       const maps = await getAllMaps();
       const m = maps.find(x => x.id === mapId);
       if (m) {
-        document.getElementById('mapEditId').value        = m.id;
-        document.getElementById('mapTitle').value         = m.title;
-        document.getElementById('mapDescription').value   = m.description || '';
-        document.getElementById('mapType').value          = m.type || 'adventure';
-        document.getElementById('mapCoins').value         = m.reward_coins  || 0;
-        document.getElementById('mapXp').value            = m.reward_xp     || 0;
-        document.getElementById('mapTokens').value        = m.reward_tokens || 0;
-        document.getElementById('mapDownload').value      = m.download_url  || '';
-        document.getElementById('mapImageUrl').value      = m.image_url     || '';
-        document.getElementById('mapCustomIcon').value    = m.icon_url && !MAP_ICONS[m.type] ? m.icon_url : '';
+        document.getElementById('mapEditId').value      = m.id;
+        document.getElementById('mapTitle').value       = m.title;
+        document.getElementById('mapDescription').value = m.description || '';
+        document.getElementById('mapType').value        = m.type || 'adventure';
+        document.getElementById('mapCoins').value       = m.reward_coins  || 0;
+        document.getElementById('mapXp').value          = m.reward_xp     || 0;
+        document.getElementById('mapTokens').value      = m.reward_tokens || 0;
+        document.getElementById('mapDownload').value    = m.download_url  || '';
+        document.getElementById('mapImageUrl').value    = m.image_url     || '';
+        document.getElementById('mapCustomIcon').value  = m.icon_url && !MAP_ICONS[m.type] ? m.icon_url : '';
         document.getElementById('mapModalTitle').innerHTML = '<i class="fas fa-edit"></i> Editar Mapa';
         updateMapIconPreview(m.type || 'adventure', m.icon_url);
       }
@@ -425,8 +414,7 @@ window.openMapAdminModal = async function(mapId) {
   }
   openModal('mapModal');
 };
-
-window.openMapModal = window.openMapAdminModal; // compat
+window.openMapModal = window.openMapAdminModal;
 
 function updateMapIconPreview(type, customIcon) {
   const preview = document.getElementById('mapIconPreview');
@@ -435,8 +423,8 @@ function updateMapIconPreview(type, customIcon) {
 }
 
 window.saveMap = async function() {
-  const editId   = document.getElementById('mapEditId').value;
-  const mapType  = document.getElementById('mapType').value;
+  const editId    = document.getElementById('mapEditId').value;
+  const mapType   = document.getElementById('mapType').value;
   const customIcon = document.getElementById('mapCustomIcon')?.value?.trim();
   const data = {
     title:         document.getElementById('mapTitle').value.trim(),
@@ -480,12 +468,13 @@ async function loadAchievements() {
   try {
     const achs = await getAllAchievements();
     if (!achs.length) { list.innerHTML = '<div class="empty-state"><i class="fas fa-medal"></i><h3>Nenhuma conquista criada</h3></div>'; return; }
+    const catLabels = { quest:'⚔️ Quests', map:'🗺️ Mapas', event:'🎉 Evento' };
     list.innerHTML = achs.map(a => `
       <div class="admin-item">
         <span style="font-size:1.5rem">${a.icon_url || '🏅'}</span>
         <div style="flex:1">
           <div style="font-family:var(--font-title);color:var(--text-primary)">${a.title}</div>
-          <div style="font-size:.75rem;color:var(--text-secondary)">${a.description || ''} · ${a.quests_required || 0} quests · Nível ${a.level_required || 0}+</div>
+          <div style="font-size:.75rem;color:var(--text-secondary)">${catLabels[a.category_type] || a.category_type || '?'} · ${a.quests_required || 0} quests · ${a.maps_required || 0} mapas · Nível ${a.level_required || 0}+${a.one_time_redeem ? ' · 🔒 Único' : ''}</div>
         </div>
         <div class="admin-item-actions">
           <button class="btn-edit btn-sm"   onclick="openAchievementModal('${a.id}')"><i class="fas fa-edit"></i></button>
@@ -496,12 +485,16 @@ async function loadAchievements() {
 }
 
 window.openAchievementModal = async function(achId) {
-  ['achTitle', 'achDescription', 'achIcon', 'achCategory', 'achEditId'].forEach(id => {
+  ['achTitle', 'achDescription', 'achIcon', 'achCategory', 'achEditId', 'achEventStart', 'achEventEnd'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
-  ['achLevel', 'achQuests', 'achCoins', 'achXp', 'achTokens'].forEach(id => {
+  ['achLevel', 'achQuests', 'achMaps', 'achCoins', 'achXp', 'achTokens'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '0';
   });
+  const ctEl = document.getElementById('achCategoryType');
+  if (ctEl) ctEl.value = 'quest';
+  const otEl = document.getElementById('achOneTime');
+  if (otEl) otEl.checked = false;
   document.getElementById('achievementModalTitle').innerHTML = '<i class="fas fa-medal"></i> Nova Conquista';
 
   if (achId) {
@@ -516,9 +509,16 @@ window.openAchievementModal = async function(achId) {
         document.getElementById('achCategory').value    = a.category || '';
         document.getElementById('achLevel').value       = a.level_required  || 0;
         document.getElementById('achQuests').value      = a.quests_required || 0;
+        document.getElementById('achMaps').value        = a.maps_required   || 0;
         document.getElementById('achCoins').value       = a.reward_coins    || 0;
         document.getElementById('achXp').value          = a.reward_xp       || 0;
         document.getElementById('achTokens').value      = a.reward_tokens   || 0;
+        if (ctEl) ctEl.value = a.category_type || 'quest';
+        if (otEl) otEl.checked = !!a.one_time_redeem;
+        const esEl = document.getElementById('achEventStart');
+        const eeEl = document.getElementById('achEventEnd');
+        if (esEl && a.event_start) esEl.value = a.event_start.substring(0, 16);
+        if (eeEl && a.event_end)   eeEl.value = a.event_end.substring(0, 16);
         document.getElementById('achievementModalTitle').innerHTML = '<i class="fas fa-edit"></i> Editar Conquista';
       }
     } catch (e) {}
@@ -528,16 +528,23 @@ window.openAchievementModal = async function(achId) {
 
 window.saveAchievement = async function() {
   const editId = document.getElementById('achEditId').value;
+  const esEl = document.getElementById('achEventStart');
+  const eeEl = document.getElementById('achEventEnd');
   const data = {
     title:           document.getElementById('achTitle').value.trim(),
     description:     document.getElementById('achDescription').value.trim(),
     icon_url:        document.getElementById('achIcon').value.trim() || null,
     category:        document.getElementById('achCategory').value.trim() || null,
+    category_type:   document.getElementById('achCategoryType')?.value || 'quest',
     level_required:  parseInt(document.getElementById('achLevel').value)   || 0,
     quests_required: parseInt(document.getElementById('achQuests').value)  || 0,
+    maps_required:   parseInt(document.getElementById('achMaps').value)    || 0,
     reward_coins:    parseInt(document.getElementById('achCoins').value)   || 0,
     reward_xp:       parseInt(document.getElementById('achXp').value)      || 0,
-    reward_tokens:   parseInt(document.getElementById('achTokens').value)  || 0
+    reward_tokens:   parseInt(document.getElementById('achTokens').value)  || 0,
+    one_time_redeem: document.getElementById('achOneTime')?.checked || false,
+    event_start:     (esEl?.value) ? new Date(esEl.value).toISOString() : null,
+    event_end:       (eeEl?.value) ? new Date(eeEl.value).toISOString() : null
   };
   if (!data.title) { showToast('Título é obrigatório', 'warning'); return; }
   try {
@@ -569,9 +576,10 @@ async function loadUsers() {
     list.innerHTML = users.map(u => {
       const displayName = u.profile_nickname || u.nickname || '?';
       const roleLabel   = u.profile_role || ROLE_LABELS[u.role] || u.role;
+      const isEmojiIcon = u.icon_url && u.icon_url.length <= 8 && !u.icon_url.startsWith('http');
       return `<div class="admin-item" id="user-row-${u.id}">
-        <div style="width:38px;height:38px;border-radius:50%;background:var(--gold-dark);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--bg-primary);flex-shrink:0;font-size:${u.icon_url && u.icon_url.length <= 4 ? '1.3rem' : '.95rem'}">
-          ${u.icon_url && u.icon_url.length <= 4
+        <div style="width:38px;height:38px;border-radius:50%;background:var(--gold-dark);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--bg-primary);flex-shrink:0;font-size:${isEmojiIcon ? '1.3rem' : '.95rem'}">
+          ${isEmojiIcon
             ? u.icon_url
             : (u.icon_url
                 ? `<img src="${u.icon_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none'">`
@@ -617,21 +625,182 @@ window.saveUserEdit = async function() {
   } catch (err) { showToast(err.message, 'error'); }
 };
 
-// ── RESETS ────────────────────────────────────────────────────
+// ── SHOP ADMIN ────────────────────────────────────────────────
+async function loadShopItems() {
+  const list = document.getElementById('shopAdminList');
+  if (!list) return;
+  list.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i></div>';
+  try {
+    const items = await getAllShopItems();
+    if (!items.length) { list.innerHTML = '<div class="empty-state"><i class="fas fa-store"></i><h3>Nenhum item criado</h3></div>'; return; }
+    const currLabels = { coins:'🪙 Moedas', tokens:'💎 Tokens', both:'🪙+💎 Ambos' };
+    list.innerHTML = items.map(item => `
+      <div class="admin-item">
+        <span style="font-size:1.5rem">${item.icon_url || '🛒'}</span>
+        <div style="flex:1">
+          <div style="font-family:var(--font-title);color:var(--text-primary)">${item.name} ${item.is_active ? '' : '<span style="color:var(--red);font-size:.7rem">[Inativo]</span>'}</div>
+          <div style="font-size:.75rem;color:var(--text-secondary)">${currLabels[item.currency] || item.currency} · ${item.price_coins ? `${item.price_coins} moedas` : ''} ${item.price_tokens ? `${item.price_tokens} tokens` : ''} · Estoque: ${item.stock === -1 ? '∞' : item.stock}</div>
+        </div>
+        <div class="admin-item-actions">
+          <button class="btn-edit btn-sm"   onclick="openShopItemModal('${item.id}')"><i class="fas fa-edit"></i></button>
+          <button class="btn-delete btn-sm" onclick="deleteShopItemConfirm('${item.id}')"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>`).join('');
+  } catch (err) { list.innerHTML = `<div class="empty-state"><h3>Erro: ${err.message}</h3></div>`; }
+}
+
+window.openShopItemModal = async function(itemId) {
+  ['shopItemName', 'shopItemDescription', 'shopItemIcon', 'shopItemImage',
+   'shopItemCategory', 'shopItemEditId'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('shopItemPriceCoins').value  = 0;
+  document.getElementById('shopItemPriceTokens').value = 0;
+  document.getElementById('shopItemStock').value       = -1;
+  document.getElementById('shopItemCurrency').value    = 'coins';
+  document.getElementById('shopItemActive').checked    = true;
+  document.getElementById('shopItemModalTitle').innerHTML = '<i class="fas fa-store"></i> Novo Item';
+
+  if (itemId) {
+    try {
+      const items = await getAllShopItems();
+      const item = items.find(x => x.id === itemId);
+      if (item) {
+        document.getElementById('shopItemEditId').value        = item.id;
+        document.getElementById('shopItemName').value          = item.name;
+        document.getElementById('shopItemDescription').value   = item.description || '';
+        document.getElementById('shopItemIcon').value          = item.icon_url    || '';
+        document.getElementById('shopItemImage').value         = item.image_url   || '';
+        document.getElementById('shopItemCategory').value      = item.category    || '';
+        document.getElementById('shopItemPriceCoins').value    = item.price_coins  || 0;
+        document.getElementById('shopItemPriceTokens').value   = item.price_tokens || 0;
+        document.getElementById('shopItemStock').value         = item.stock ?? -1;
+        document.getElementById('shopItemCurrency').value      = item.currency    || 'coins';
+        document.getElementById('shopItemActive').checked      = item.is_active;
+        document.getElementById('shopItemModalTitle').innerHTML = '<i class="fas fa-edit"></i> Editar Item';
+      }
+    } catch (e) {}
+  }
+  openModal('shopItemModal');
+};
+
+window.saveShopItem = async function() {
+  const editId = document.getElementById('shopItemEditId').value;
+  const data = {
+    name:          document.getElementById('shopItemName').value.trim(),
+    description:   document.getElementById('shopItemDescription').value.trim() || null,
+    icon_url:      document.getElementById('shopItemIcon').value.trim()  || null,
+    image_url:     document.getElementById('shopItemImage').value.trim() || null,
+    category:      document.getElementById('shopItemCategory').value.trim() || 'geral',
+    price_coins:   parseInt(document.getElementById('shopItemPriceCoins').value)  || 0,
+    price_tokens:  parseInt(document.getElementById('shopItemPriceTokens').value) || 0,
+    stock:         parseInt(document.getElementById('shopItemStock').value) ?? -1,
+    currency:      document.getElementById('shopItemCurrency').value || 'coins',
+    is_active:     document.getElementById('shopItemActive').checked
+  };
+  if (!data.name) { showToast('Nome é obrigatório', 'warning'); return; }
+  try {
+    if (editId) await updateShopItem(editId, data);
+    else        await createShopItem(data);
+    closeModal('shopItemModal');
+    showToast(editId ? 'Item atualizado!' : 'Item criado!', 'success');
+    await loadShopItems();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+window.deleteShopItemConfirm = async function(id) {
+  if (!confirm('Deletar este item?')) return;
+  try { await deleteShopItem(id); showToast('Item deletado!', 'info'); await loadShopItems(); }
+  catch (err) { showToast(err.message, 'error'); }
+};
+
+// ── RANKINGS (visualizador histórico) ─────────────────────────
+let currentRankingHistoryType   = 'daily';
+let currentRankingHistoryMetric = 'coins';
+
+async function loadRankingHistory() {
+  const histList = document.getElementById('rankingHistoryList');
+  if (histList) {
+    histList.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>';
+    try {
+      const history = await getRankingHistory(currentRankingHistoryType, currentRankingHistoryMetric, 20);
+      renderRankingHistory(history);
+    } catch (err) {
+      histList.innerHTML = `<div class="empty-state"><h3>Erro: ${err.message}</h3></div>`;
+    }
+  }
+}
+
+function renderRankingHistory(history) {
+  const histList = document.getElementById('rankingHistoryList');
+  if (!histList) return;
+  if (!history.length) {
+    histList.innerHTML = '<div class="empty-state"><i class="fas fa-history"></i><h3>Nenhum histórico disponível</h3><p>Execute um reset para salvar dados históricos.</p></div>';
+    return;
+  }
+  // Agrupar por period_label
+  const byPeriod = {};
+  for (const row of history) {
+    if (!byPeriod[row.period_label]) byPeriod[row.period_label] = [];
+    byPeriod[row.period_label].push(row);
+  }
+  const metricLabel = currentRankingHistoryMetric === 'tokens' ? 'Tokens' : 'Moedas';
+  const scoreField  = currentRankingHistoryMetric === 'tokens' ? 'score_tokens' : 'score_coins';
+
+  let html = '';
+  for (const [period, rows] of Object.entries(byPeriod).slice(0, 5)) {
+    const sorted = rows.sort((a, b) => (b[scoreField] || 0) - (a[scoreField] || 0));
+    html += `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px;margin-bottom:12px">
+      <div style="font-family:var(--font-title);color:var(--gold);margin-bottom:10px;font-size:.9rem">📅 ${period}</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+      ${sorted.slice(0, 10).map((row, idx) => {
+        const name = row.users?.profile_nickname || row.users?.nickname || '?';
+        const score = (row[scoreField] || 0).toLocaleString('pt-BR');
+        const medals = ['🥇','🥈','🥉'];
+        return `<div style="display:flex;align-items:center;gap:10px;font-size:.82rem;color:var(--text-secondary)">
+          <span style="width:20px;text-align:center">${medals[idx] || (idx+1)}</span>
+          <span style="flex:1;color:var(--text-primary)">${name}</span>
+          <span style="color:var(--gold)">${score} ${metricLabel.toLowerCase()}</span>
+        </div>`;
+      }).join('')}
+      </div>
+    </div>`;
+  }
+  histList.innerHTML = html;
+}
+
 function setupResetButtons() {
+  // Period selector para histórico
+  document.querySelectorAll('#panel-rankings .filter-btn[data-rh-type]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#panel-rankings .filter-btn[data-rh-type]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentRankingHistoryType = btn.dataset.rhType;
+      loadRankingHistory();
+    });
+  });
+  document.querySelectorAll('#panel-rankings .filter-btn[data-rh-metric]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#panel-rankings .filter-btn[data-rh-metric]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentRankingHistoryMetric = btn.dataset.rhMetric;
+      loadRankingHistory();
+    });
+  });
+
   document.getElementById('resetDailyBtn')?.addEventListener('click', async () => {
     if (!confirm('⚠️ Resetar ranking DIÁRIO? O histórico será salvo antes.')) return;
-    try { await resetDailyRanking(); showToast('Ranking diário resetado!', 'success'); }
+    try { await resetDailyRanking(); showToast('Ranking diário resetado!', 'success'); await loadRankingHistory(); }
     catch (err) { showToast(err.message, 'error'); }
   });
   document.getElementById('resetWeeklyBtn')?.addEventListener('click', async () => {
     if (!confirm('⚠️ Resetar ranking SEMANAL?')) return;
-    try { await resetWeeklyRanking(); showToast('Ranking semanal resetado!', 'success'); }
+    try { await resetWeeklyRanking(); showToast('Ranking semanal resetado!', 'success'); await loadRankingHistory(); }
     catch (err) { showToast(err.message, 'error'); }
   });
   document.getElementById('resetMonthlyBtn')?.addEventListener('click', async () => {
     if (!confirm('⚠️ Resetar ranking MENSAL?')) return;
-    try { await resetMonthlyRanking(); showToast('Ranking mensal resetado!', 'success'); }
+    try { await resetMonthlyRanking(); showToast('Ranking mensal resetado!', 'success'); await loadRankingHistory(); }
     catch (err) { showToast(err.message, 'error'); }
   });
 }

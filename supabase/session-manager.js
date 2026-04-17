@@ -130,12 +130,25 @@ export function renderUserInSidebar(profile) {
   if (nickname) nickname.textContent = profile.profile_nickname || profile.nickname || profile.username || 'Aventureiro';
   if (role)     role.textContent     = profile.profile_role || (profile.role === 'admin' ? '⚔ Admin' : '🗡 Marmotinha');
   if (avatar) {
-    if (profile.icon_url) {
+    const icon = profile.icon_url || '';
+    const isEmoji = icon.length > 0 && icon.length <= 8 && !icon.startsWith('http');
+    if (icon && isEmoji) {
+      // Emoji avatar: mostra o emoji como texto
+      avatar.style.backgroundImage = '';
+      avatar.style.fontSize = '1.4rem';
+      avatar.style.display  = 'flex';
+      avatar.style.alignItems = 'center';
+      avatar.style.justifyContent = 'center';
+      avatar.textContent = icon;
+    } else if (icon) {
+      // URL de imagem
       avatar.textContent = '';
-      avatar.style.backgroundImage = `url(${profile.icon_url})`;
-      avatar.style.backgroundSize = 'cover';
+      avatar.style.backgroundImage = `url(${icon})`;
+      avatar.style.backgroundSize  = 'cover';
+      avatar.style.backgroundPosition = 'center';
     } else {
-      avatar.textContent = (profile.nickname || 'A')[0].toUpperCase();
+      avatar.style.backgroundImage = '';
+      avatar.textContent = (profile.profile_nickname || profile.nickname || 'A')[0].toUpperCase();
     }
   }
   if (levelBadge) levelBadge.textContent = `${profile.level || 1}`;

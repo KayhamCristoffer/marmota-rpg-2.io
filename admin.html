@@ -3,13 +3,12 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>RPG Quests ⚔️ - Admin</title>
+  <title>Toca das Marmotas ⚔️ - Admin</title>
   <link rel="stylesheet" href="css/style.css"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
   <style>
-    /* ── Map submission approval modal ── */
     .reward-input-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
     .proof-link-btn {
       display:inline-flex; align-items:center; gap:6px; padding:6px 12px;
@@ -22,6 +21,7 @@
       width:80px; height:54px; object-fit:cover; border-radius:var(--radius-sm);
       border:1px solid var(--border); cursor:pointer; flex-shrink:0;
     }
+    .rh-period-selector { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
   </style>
 </head>
 <body class="dashboard-page">
@@ -54,6 +54,7 @@
       <div class="nav-item" data-tab="maps"><i class="fas fa-map"></i><span>Mapas</span></div>
       <div class="nav-item" data-tab="achievements"><i class="fas fa-medal"></i><span>Conquistas</span></div>
       <div class="nav-item" data-tab="users"><i class="fas fa-users"></i><span>Usuários</span></div>
+      <div class="nav-item" data-tab="shop"><i class="fas fa-store"></i><span>Loja</span></div>
       <div class="nav-item" data-tab="rankings"><i class="fas fa-trophy"></i><span>Rankings</span></div>
       <div class="nav-divider"></div>
       <div class="nav-item nav-logout" id="navLogout"><i class="fas fa-sign-out-alt"></i><span>Sair</span></div>
@@ -78,7 +79,7 @@
         </div>
       </div>
 
-      <!-- SUBMISSÕES DE MAPAS (usuário → admin aprova) -->
+      <!-- SUBMISSÕES DE MAPAS -->
       <div class="admin-panel" id="panel-map-submissions">
         <div class="page-header"><h2 class="page-title"><i class="fas fa-map-marked-alt"></i> Mapas Enviados por Usuários</h2></div>
         <div class="submissions-list" id="mapSubmissionsList">
@@ -119,9 +120,37 @@
         <div class="admin-list" id="usersList"></div>
       </div>
 
+      <!-- LOJA (ADMIN) -->
+      <div class="admin-panel" id="panel-shop">
+        <div class="page-header">
+          <h2 class="page-title"><i class="fas fa-store"></i> Gerenciar Loja</h2>
+          <button class="btn-primary" onclick="openShopItemModal()"><i class="fas fa-plus"></i> Novo Item</button>
+        </div>
+        <div class="admin-list" id="shopAdminList"></div>
+      </div>
+
       <!-- RANKINGS -->
       <div class="admin-panel" id="panel-rankings">
-        <div class="page-header"><h2 class="page-title"><i class="fas fa-trophy"></i> Reset Rankings</h2></div>
+        <div class="page-header"><h2 class="page-title"><i class="fas fa-trophy"></i> Rankings</h2></div>
+
+        <!-- Visualizador de Histórico -->
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;margin-bottom:20px">
+          <h3 style="font-family:var(--font-title);color:var(--gold);margin-bottom:14px;font-size:.95rem"><i class="fas fa-history"></i> Histórico de Rankings</h3>
+          <div class="rh-period-selector">
+            <button class="filter-btn active" data-rh-type="daily"><i class="fas fa-sun"></i> Diário</button>
+            <button class="filter-btn" data-rh-type="weekly"><i class="fas fa-calendar-week"></i> Semanal</button>
+            <button class="filter-btn" data-rh-type="monthly"><i class="fas fa-calendar-alt"></i> Mensal</button>
+          </div>
+          <div class="rh-period-selector">
+            <button class="filter-btn active" data-rh-metric="coins"><i class="fas fa-coins"></i> Moedas</button>
+            <button class="filter-btn" data-rh-metric="tokens"><i class="fas fa-gem"></i> Tokens</button>
+          </div>
+          <div id="rankingHistoryList">
+            <div class="empty-state"><i class="fas fa-history"></i><h3>Nenhum histórico disponível</h3></div>
+          </div>
+        </div>
+
+        <!-- Reset buttons -->
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:24px;max-width:600px">
           <p style="color:var(--text-secondary);font-size:.85rem;margin-bottom:20px">
             ⚠️ Os resets salvam o histórico antes de zerar. Use com cuidado! A janela de manutenção automática é 01:30–02:00.
@@ -173,9 +202,9 @@
           <input type="checkbox" id="questActive" checked style="accent-color:var(--gold);width:16px;height:16px"/> Quest Ativa
         </label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem">
-          <input type="checkbox" id="questImageRequired" style="accent-color:var(--gold);width:16px;height:16px"/>
-          Exige Upload de Imagem
-          <small style="color:var(--text-muted)">(desmarcado = aceita link de print)</small>
+          <input type="checkbox" id="questProofRequired" style="accent-color:var(--gold);width:16px;height:16px"/>
+          Exige Comprovante
+          <small style="color:var(--text-muted)">(desmarcado = sem prova, ex: Login Diário)</small>
         </label>
       </div>
       <div class="modal-footer">
@@ -185,7 +214,7 @@
     </div>
   </div>
 
-  <!-- MODAL: MAPA (com seletor de tipo + ícone + URL de imagem) -->
+  <!-- MODAL: MAPA -->
   <div class="modal-overlay" id="mapModal">
     <div class="modal-box" style="max-width:560px">
       <div class="modal-header">
@@ -195,8 +224,6 @@
       <input type="hidden" id="mapEditId"/>
       <div class="form-group"><label>Título *</label><input type="text" id="mapTitle" placeholder="Nome do mapa" maxlength="80"/></div>
       <div class="form-group"><label>Descrição</label><textarea id="mapDescription" placeholder="Descreva o mapa…"></textarea></div>
-
-      <!-- Tipo + preview de ícone -->
       <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-bottom:12px">
         <div class="form-group" style="margin:0">
           <label>Tipo de Mapa</label>
@@ -214,19 +241,14 @@
         </div>
         <div style="width:56px;height:56px;border-radius:var(--radius-md);background:var(--bg-input);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.8rem" id="mapIconPreview">🗺️</div>
       </div>
-
-      <!-- Ícone customizado -->
       <div class="form-group">
-        <label>Ícone Customizado <small>(emoji ou URL — sobrepõe o tipo)</small></label>
+        <label>Ícone Customizado <small>(emoji ou URL)</small></label>
         <input type="text" id="mapCustomIcon" placeholder="🗺️  ou  https://…icon.png" oninput="onMapCustomIconChange()"/>
       </div>
-
-      <!-- URL da imagem -->
       <div class="form-group">
-        <label>URL da Imagem / Capa <small>(screenshot, imgur, gyazo…)</small></label>
+        <label>URL da Imagem / Capa</label>
         <input type="url" id="mapImageUrl" placeholder="https://…imagem.jpg"/>
       </div>
-
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
         <div class="form-group"><label>Moedas</label><input type="number" id="mapCoins" value="0" min="0"/></div>
         <div class="form-group"><label>XP</label><input type="number" id="mapXp" value="0" min="0"/></div>
@@ -268,7 +290,7 @@
     </div>
   </div>
 
-  <!-- MODAL: CONQUISTA -->
+  <!-- MODAL: CONQUISTA (com category_type, maps, event dates, one_time_redeem) -->
   <div class="modal-overlay" id="achievementModal">
     <div class="modal-box">
       <div class="modal-header">
@@ -280,12 +302,38 @@
       <div class="form-group"><label>Descrição</label><textarea id="achDescription"></textarea></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group"><label>Ícone (emoji)</label><input type="text" id="achIcon" placeholder="🏅" maxlength="10"/></div>
-        <div class="form-group"><label>Categoria</label><input type="text" id="achCategory" placeholder="quests"/></div>
+        <div class="form-group"><label>Categoria (texto livre)</label><input type="text" id="achCategory" placeholder="ex: iniciante"/></div>
+        <div class="form-group">
+          <label>Tipo de Conquista</label>
+          <select id="achCategoryType">
+            <option value="quest">⚔️ Quests</option>
+            <option value="map">🗺️ Mapas</option>
+            <option value="event">🎉 Evento</option>
+          </select>
+        </div>
         <div class="form-group"><label>Nível Necessário</label><input type="number" id="achLevel" value="0" min="0"/></div>
         <div class="form-group"><label>Quests Necessárias</label><input type="number" id="achQuests" value="0" min="0"/></div>
+        <div class="form-group"><label>Mapas Necessários</label><input type="number" id="achMaps" value="0" min="0"/></div>
         <div class="form-group"><label>Bônus Moedas</label><input type="number" id="achCoins" value="0" min="0"/></div>
         <div class="form-group"><label>Bônus XP</label><input type="number" id="achXp" value="0" min="0"/></div>
         <div class="form-group"><label>Bônus Tokens</label><input type="number" id="achTokens" value="0" min="0"/></div>
+      </div>
+      <!-- Event fields -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Início do Evento <small>(opcional)</small></label>
+          <input type="datetime-local" id="achEventStart"/>
+        </div>
+        <div class="form-group">
+          <label>Fim do Evento <small>(opcional)</small></label>
+          <input type="datetime-local" id="achEventEnd"/>
+        </div>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="achOneTime" style="accent-color:var(--gold);width:16px;height:16px"/>
+        <label style="text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem;cursor:pointer" for="achOneTime">
+          Resgate único <small style="color:var(--text-muted)">(só pode ser resgatado uma vez por usuário)</small>
+        </label>
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('achievementModal')">Cancelar</button>
@@ -323,6 +371,45 @@
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('editUserModal')">Cancelar</button>
         <button class="btn-primary" onclick="saveUserEdit()"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ITEM DA LOJA -->
+  <div class="modal-overlay" id="shopItemModal">
+    <div class="modal-box" style="max-width:560px">
+      <div class="modal-header">
+        <h3 class="modal-title" id="shopItemModalTitle"><i class="fas fa-store"></i> Novo Item</h3>
+        <button class="modal-close" onclick="closeModal('shopItemModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="shopItemEditId"/>
+      <div class="form-group"><label>Nome *</label><input type="text" id="shopItemName" placeholder="Nome do item" maxlength="80"/></div>
+      <div class="form-group"><label>Descrição</label><textarea id="shopItemDescription" placeholder="Descreva o item…" style="height:60px"></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Ícone (emoji)</label><input type="text" id="shopItemIcon" placeholder="🛒" maxlength="10"/></div>
+        <div class="form-group"><label>Categoria</label><input type="text" id="shopItemCategory" placeholder="geral, cosmético, booster…"/></div>
+      </div>
+      <div class="form-group"><label>URL da Imagem</label><input type="url" id="shopItemImage" placeholder="https://…"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Moeda de Compra</label>
+          <select id="shopItemCurrency">
+            <option value="coins">🪙 Moedas</option>
+            <option value="tokens">💎 Tokens</option>
+            <option value="both">🪙+💎 Ambos</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Estoque (-1 = ilimitado)</label><input type="number" id="shopItemStock" value="-1" min="-1"/></div>
+        <div class="form-group"><label>Preço (Moedas)</label><input type="number" id="shopItemPriceCoins" value="0" min="0"/></div>
+        <div class="form-group"><label>Preço (Tokens)</label><input type="number" id="shopItemPriceTokens" value="0" min="0"/></div>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="shopItemActive" checked style="accent-color:var(--gold);width:16px;height:16px"/>
+        <label style="text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem;cursor:pointer" for="shopItemActive">Item Ativo (visível na loja)</label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('shopItemModal')">Cancelar</button>
+        <button class="btn-primary" onclick="saveShopItem()"><i class="fas fa-save"></i> Salvar</button>
       </div>
     </div>
   </div>

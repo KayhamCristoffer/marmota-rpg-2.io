@@ -1,16 +1,10 @@
 // ================================================================
-// SUPABASE DATABASE v4 — RPG Quests
-// Changelog v4:
-//  - emailRedirectTo always points to GitHub Pages
-//  - ensureProfile: robust upsert for existing auth users
-//  - setUserRole: uses service-level upsert workaround (admin bypass)
-//  - Quest proof: URL-based (prnt.sc), file upload only for map covers
-//  - image_required flag respected: false → URL proof, true → file upload
-//  - Cooldown: getNextReset returns ISO string for next 01:45 reset
-//  - submitMapByUser: image_url (URL, not base64)
-//  - approveMapSubmission: image_url propagated to maps table
-//  - getPendingMapSubmissions exported
-//  - MAP_TYPE_ICONS exported
+// SUPABASE DATABASE v5 — Toca das Marmotas
+// Changelog v5:
+//  - Shop: getShopItems, buyShopItem, getUserPurchases, shop favorites
+//  - getAllMaps: join com users para exibir criador
+//  - Achievements: category_type, maps_required, event fields
+//  - resetRanking: save score_coins/score_tokens
 // ================================================================
 import { sb } from './client.js';
 import { ADMIN_UID } from './supabase-config.js';
@@ -188,9 +182,9 @@ export async function createSubmission(userId, questId, proofUrl) {
   const { data: userRow } = await sb.from('users').select('id').eq('id', userId).maybeSingle();
   if (!userRow) throw new Error('Perfil não encontrado. Faça logout e login novamente.');
 
-  // Busca quest para verificar cooldown e image_required
+  // Busca quest para verificar cooldown e proof_required
   const { data: quest } = await sb.from('quests')
-    .select('cooldown_hours, image_required').eq('id', questId).single();
+    .select('cooldown_hours, proof_required').eq('id', questId).single();
 
   // Verifica submissão existente (mais recente)
   const { data: existing } = await sb
@@ -202,26 +196,26 @@ export async function createSubmission(userId, questId, proofUrl) {
     .limit(1)
     .maybeSingle();
 
-  if (existing) {
-    if (existing.status === 'approved') {
-      if (quest?.cooldown_hours > 0 && existing.cooldown_until) {
-        const until = new Date(existing.cooldown_until);
-        if (until > new Date()) {
-          const diffH = Math.ceil((until - new Date()) / 3600000);
-          const diffM = Math.ceil((until - new Date()) / 60000);
-          const msg = diffH >= 1
-            ? `Quest em cooldown! Disponível em ${diffH}h.`
-            : `Quest em cooldown! Disponível em ${diffM} min.`;
-          throw new Error(msg);
+    if (existing) {
+      if (existing.status === 'approved') {
+        if (quest?.cooldown_hours > 0 && existing.cooldown_until) {
+          const until = new Date(existing.cooldown_until);
+          if (until > new Date()) {
+            const diffH = Math.ceil((until - new Date()) / 3600000);
+            const diffM = Math.ceil((until - new Date()) / 60000);
+            const msg = diffH >= 1
+              ? `Quest em cooldown! Disponível em ${diffH}h.`
+              : `Quest em cooldown! Disponível em ${diffM} min.`;
+            throw new Error(msg);
+          }
+        } else if (quest?.cooldown_hours === 0) {
+          throw new Error('Quest já foi concluída!');
         }
-      } else if (quest?.cooldown_hours === 0) {
-        throw new Error('Quest já foi concluída!');
+      } else if (existing.status === 'pending') {
+        throw new Error('Quest já está em análise!');
       }
-    } else if (existing.status === 'pending') {
-      throw new Error('Quest já está em análise!');
+      // 'rejected' → permite reenvio
     }
-    // 'rejected' → permite reenvio
-  }
 
   const { data, error } = await sb.from('submissions').insert({
     user_id:  userId,
@@ -236,7 +230,7 @@ export async function createSubmission(userId, questId, proofUrl) {
 export async function getUserSubmissions(userId) {
   const { data, error } = await sb
     .from('submissions')
-    .select(`*, quests(title, type, reward_coins, reward_xp, icon_url, cooldown_hours, image_required)`)
+    .select(`*, quests(title, type, reward_coins, reward_xp, icon_url, cooldown_hours, proof_required)`)
     .eq('user_id', userId)
     .order('submitted_at', { ascending: false });
   if (error) throw error;
@@ -403,7 +397,9 @@ export async function rejectMapSubmission(mapSubId, adminNotes) {
 
 export async function getAllMaps() {
   const { data, error } = await sb
-    .from('maps').select('*').order('created_at', { ascending: false });
+    .from('maps')
+    .select('*, users(nickname, profile_nickname)')
+    .order('created_at', { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
@@ -533,33 +529,33 @@ export async function checkAndGrantAchievements(userId) {
 // ─── RANKING RESETS ───────────────────────────────────────────
 
 export async function resetDailyRanking() {
-  const { data: users } = await sb.from('users').select('id,coins_daily').gt('coins_daily', 0);
+  const { data: users } = await sb.from('users').select('id,coins_daily,tokens_daily').gt('coins_daily', 0);
   if (users?.length) {
     const today = new Date().toISOString().split('T')[0];
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'daily', score_value: u.coins_daily, period_label: today }))
+      users.map(u => ({ user_id: u.id, score_type: 'daily', score_coins: u.coins_daily, score_tokens: u.tokens_daily || 0, period_label: today }))
     );
   }
   await sb.from('users').update({ coins_daily: 0, tokens_daily: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
 }
 
 export async function resetWeeklyRanking() {
-  const { data: users } = await sb.from('users').select('id,coins_weekly').gt('coins_weekly', 0);
+  const { data: users } = await sb.from('users').select('id,coins_weekly,tokens_weekly').gt('coins_weekly', 0);
   if (users?.length) {
     const week = getWeekLabel();
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'weekly', score_value: u.coins_weekly, period_label: week }))
+      users.map(u => ({ user_id: u.id, score_type: 'weekly', score_coins: u.coins_weekly, score_tokens: u.tokens_weekly || 0, period_label: week }))
     );
   }
   await sb.from('users').update({ coins_weekly: 0, tokens_weekly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
 }
 
 export async function resetMonthlyRanking() {
-  const { data: users } = await sb.from('users').select('id,coins_monthly').gt('coins_monthly', 0);
+  const { data: users } = await sb.from('users').select('id,coins_monthly,tokens_monthly').gt('coins_monthly', 0);
   if (users?.length) {
     const month = new Date().toISOString().substring(0, 7);
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'monthly', score_value: u.coins_monthly, period_label: month }))
+      users.map(u => ({ user_id: u.id, score_type: 'monthly', score_coins: u.coins_monthly, score_tokens: u.tokens_monthly || 0, period_label: month }))
     );
   }
   await sb.from('users').update({ coins_monthly: 0, tokens_monthly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
@@ -617,4 +613,141 @@ export async function uploadProofImage(file) {
     reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
     reader.readAsDataURL(file);
   });
+}
+
+// ─── SHOP ─────────────────────────────────────────────────────
+
+export async function getShopItems() {
+  const { data, error } = await sb
+    .from('shop_items')
+    .select('*')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getAllShopItems() {
+  const { data, error } = await sb
+    .from('shop_items')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createShopItem(d) {
+  const { data, error } = await sb.from('shop_items').insert(d).select();
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+export async function updateShopItem(id, d) {
+  const { data, error } = await sb.from('shop_items').update(d).eq('id', id).select();
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+export async function deleteShopItem(id) {
+  const { error } = await sb.from('shop_items').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function buyShopItem(userId, itemId) {
+  // 1. Pega item
+  const { data: item, error: itemErr } = await sb
+    .from('shop_items').select('*').eq('id', itemId).single();
+  if (itemErr) throw itemErr;
+  if (!item.is_active) throw new Error('Item não disponível');
+  if (item.stock === 0) throw new Error('Item esgotado!');
+
+  // 2. Pega usuário
+  const { data: user, error: userErr } = await sb
+    .from('users').select('coins, tokens').eq('id', userId).single();
+  if (userErr) throw userErr;
+
+  let paidCoins = 0, paidTokens = 0;
+  if (item.currency === 'coins' || item.currency === 'both') {
+    if ((user.coins || 0) < item.price_coins) throw new Error('Moedas insuficientes!');
+    paidCoins = item.price_coins;
+  }
+  if (item.currency === 'tokens' || item.currency === 'both') {
+    if ((user.tokens || 0) < item.price_tokens) throw new Error('Tokens insuficientes!');
+    paidTokens = item.price_tokens;
+  }
+
+  // 3. Debita usuário
+  await sb.from('users').update({
+    coins:  (user.coins  || 0) - paidCoins,
+    tokens: (user.tokens || 0) - paidTokens,
+    updated_at: new Date().toISOString()
+  }).eq('id', userId);
+
+  // 4. Decrementa stock (se não ilimitado)
+  if (item.stock > 0) {
+    await sb.from('shop_items').update({ stock: item.stock - 1 }).eq('id', itemId);
+  }
+
+  // 5. Registra compra
+  const { error: purchErr } = await sb.from('shop_purchases').insert({
+    user_id: userId, item_id: itemId,
+    qty: 1, paid_coins: paidCoins, paid_tokens: paidTokens
+  });
+  if (purchErr) throw purchErr;
+}
+
+export async function getUserPurchases(userId) {
+  const { data, error } = await sb
+    .from('shop_purchases')
+    .select('*, shop_items(name, icon_url, description)')
+    .eq('user_id', userId)
+    .order('purchased_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getAllPurchases() {
+  const { data, error } = await sb
+    .from('shop_purchases')
+    .select('*, shop_items(name, icon_url), users(nickname, profile_nickname)')
+    .order('purchased_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getShopFavorites(userId) {
+  const { data, error } = await sb
+    .from('shop_favorites')
+    .select('item_id')
+    .eq('user_id', userId);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addShopFavorite(userId, itemId) {
+  const { error } = await sb.from('shop_favorites').upsert(
+    { user_id: userId, item_id: itemId },
+    { onConflict: 'user_id,item_id', ignoreDuplicates: true }
+  );
+  if (error) throw error;
+}
+
+export async function removeShopFavorite(userId, itemId) {
+  const { error } = await sb.from('shop_favorites')
+    .delete().eq('user_id', userId).eq('item_id', itemId);
+  if (error) throw error;
+}
+
+// ─── RANKING HISTORY ──────────────────────────────────────────
+
+export async function getRankingHistory(scoreType, metric = 'coins', limit = 10) {
+  const scoreField = metric === 'tokens' ? 'score_tokens' : 'score_coins';
+  const { data, error } = await sb
+    .from('ranking_history')
+    .select(`*, users(nickname, profile_nickname, icon_url)`)
+    .eq('score_type', scoreType)
+    .order('period_label', { ascending: false })
+    .limit(limit * 20); // fetch more, group by period in JS
+  if (error) throw error;
+  return data ?? [];
 }
