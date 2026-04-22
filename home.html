@@ -147,7 +147,10 @@
       <div class="xp-label"><span>XP</span><span id="sidebarXpLabel">0 / 100</span></div>
       <div class="xp-bar"><div class="xp-fill" id="sidebarXpFill" style="width:0%"></div></div>
     </div>
-    <div class="sidebar-coins"><i class="fas fa-coins"></i><span id="sidebarCoins">0</span><span class="coins-label">moedas</span></div>
+    <div class="sidebar-coins">
+      <span class="sidebar-coin-item"><i class="fas fa-coins"></i><span id="sidebarCoins">0</span></span>
+      <span class="sidebar-coin-item" style="color:var(--purple-light)"><i class="fas fa-gem"></i><span id="sidebarTokens">0</span></span>
+    </div>
     <nav class="sidebar-nav">
       <div class="nav-item active" data-page="dashboard"><i class="fas fa-home"></i><span>Dashboard</span></div>
       <div class="nav-item" data-page="quests"><i class="fas fa-scroll"></i><span>Quests</span></div>
@@ -168,7 +171,10 @@
     <div class="topbar">
       <button class="topbar-menu" id="topbarMenu"><i class="fas fa-bars"></i></button>
       <h1 class="topbar-title" id="topbarTitle">Dashboard</h1>
-      <div class="topbar-coins"><i class="fas fa-coins"></i><span id="topbarCoins">0</span></div>
+      <div class="topbar-coins">
+        <span><i class="fas fa-coins"></i><span id="topbarCoins">0</span></span>
+        <span style="margin-left:10px;color:var(--purple-light)"><i class="fas fa-gem"></i><span id="topbarTokens">0</span></span>
+      </div>
     </div>
 
     <!-- PAGE: DASHBOARD -->

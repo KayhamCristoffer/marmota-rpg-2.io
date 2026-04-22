@@ -1,10 +1,9 @@
 // ================================================================
-// SUPABASE DATABASE v5 — Toca das Marmotas
-// Changelog v5:
-//  - Shop: getShopItems, buyShopItem, getUserPurchases, shop favorites
-//  - getAllMaps: join com users para exibir criador
-//  - Achievements: category_type, maps_required, event fields
-//  - resetRanking: save score_coins/score_tokens
+// SUPABASE DATABASE v6 — Toca das Marmotas
+// Changelog v6:
+//  - likeMap: 1 like por usuário via localStorage
+//  - incrementMapView: incrementa views ao abrir detalhe
+//  - getRankingHistory: query melhorada, coluna explícita, error log
 // ================================================================
 import { sb } from './client.js';
 import { ADMIN_UID } from './supabase-config.js';
@@ -421,9 +420,24 @@ export async function deleteMap(mapId) {
   if (error) throw error;
 }
 
-export async function likeMap(mapId) {
+export async function likeMap(mapId, userId) {
+  // Prevent duplicate likes: track in localStorage
+  const storageKey = `map_liked_${userId}_${mapId}`;
+  if (localStorage.getItem(storageKey)) {
+    throw new Error('Você já curtiu este mapa!');
+  }
   const { error } = await sb.rpc('increment_map_likes', { map_id: mapId });
   if (error) throw error;
+  localStorage.setItem(storageKey, '1');
+}
+
+export async function incrementMapView(mapId) {
+  const { error } = await sb.rpc('increment_map_views', { map_id: mapId });
+  if (error) {
+    // Fallback: update directly if RPC doesn't exist yet
+    const { data: m } = await sb.from('maps').select('views_count').eq('id', mapId).single();
+    if (m) await sb.from('maps').update({ views_count: (m.views_count || 0) + 1 }).eq('id', mapId);
+  }
 }
 
 // ─── RANKING ──────────────────────────────────────────────────
@@ -740,14 +754,19 @@ export async function removeShopFavorite(userId, itemId) {
 
 // ─── RANKING HISTORY ──────────────────────────────────────────
 
-export async function getRankingHistory(scoreType, metric = 'coins', limit = 10) {
+export async function getRankingHistory(scoreType, metric = 'coins', limitPeriods = 5) {
   const scoreField = metric === 'tokens' ? 'score_tokens' : 'score_coins';
+  // Fetch the last 200 records for this score_type, ordered by period desc then score desc
   const { data, error } = await sb
     .from('ranking_history')
-    .select(`*, users(nickname, profile_nickname, icon_url)`)
+    .select(`id, user_id, score_type, score_coins, score_tokens, period_label, recorded_at, users(nickname, profile_nickname, icon_url)`)
     .eq('score_type', scoreType)
     .order('period_label', { ascending: false })
-    .limit(limit * 20); // fetch more, group by period in JS
-  if (error) throw error;
+    .order(scoreField, { ascending: false })
+    .limit(200);
+  if (error) {
+    console.error('getRankingHistory error:', error);
+    throw error;
+  }
   return data ?? [];
 }

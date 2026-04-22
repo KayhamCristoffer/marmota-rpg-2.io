@@ -153,6 +153,8 @@ export function renderUserInSidebar(profile) {
   }
   if (levelBadge) levelBadge.textContent = `${profile.level || 1}`;
   if (coins)      coins.textContent      = (profile.coins || 0).toLocaleString('pt-BR');
+  const sidebarTokens = document.getElementById('sidebarTokens');
+  if (sidebarTokens) sidebarTokens.textContent = (profile.tokens || 0).toLocaleString('pt-BR');
 
   // XP bar
   if (xpFill && xpLabel) {
