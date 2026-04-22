@@ -1,12 +1,9 @@
 // ============================================================
-// HOME.JS v5 — Toca das Marmotas - Dashboard com Supabase
-// Changelog v5:
-//  - Quest proof: somente URL (sem upload de arquivo)
-//  - image_required=false → sem comprovante necessário (ex: Login Diário)
-//  - Maps: 'Mais Detalhes' modal, recompensas escondidas no card
-//  - Maps: mostra criador do mapa no card
-//  - Shop (Loja): comprar itens, favoritos, meus pedidos
-//  - Renomeado para Toca das Marmotas
+// HOME.JS v6 — Toca das Marmotas - Dashboard com Supabase
+// Changelog v6:
+//  - Tokens visíveis em sidebar-coins e topbar-coins
+//  - Maps: 1 like por usuário (localStorage), incrementa views ao abrir detalhe
+//  - Import incrementMapView
 // ============================================================
 import { requireAuth, renderUserInSidebar, showToast, isAdmin } from '../supabase/session-manager.js';
 import {
@@ -16,7 +13,8 @@ import {
   updateUserProfile, isMaintenanceTime,
   calcLevel, xpForLevel, xpForNextLevel, likeMap, formatCooldown,
   getShopItems, buyShopItem, getUserPurchases,
-  getShopFavorites, addShopFavorite, removeShopFavorite
+  getShopFavorites, addShopFavorite, removeShopFavorite,
+  incrementMapView
 } from '../supabase/database.js';
 
 // ── Estado ───────────────────────────────────────────────────
@@ -168,6 +166,8 @@ async function loadDashboard() {
 function updateTopbar(profile) {
   const tc = document.getElementById('topbarCoins');
   if (tc) tc.textContent = (profile.coins || 0).toLocaleString('pt-BR');
+  const tt = document.getElementById('topbarTokens');
+  if (tt) tt.textContent = (profile.tokens || 0).toLocaleString('pt-BR');
 }
 
 function setValue(id, val) {
@@ -395,9 +395,16 @@ function setupMapFilters() {
   });
 }
 
-window.openMapDetail = function(mapId) {
+window.openMapDetail = async function(mapId) {
   const m = allMaps.find(x => x.id === mapId);
   if (!m) return;
+
+  // Increment view count (fire-and-forget, update local state)
+  try {
+    await incrementMapView(mapId);
+    m.views_count = (m.views_count || 0) + 1;
+  } catch (e) { /* ignore */ }
+
   const creator = m.users?.profile_nickname || m.users?.nickname || null;
   const titleEl = document.getElementById('mapDetailTitle');
   const bodyEl  = document.getElementById('mapDetailBody');
@@ -877,8 +884,11 @@ window.openUserMapSubmitModal = function() {
 
 window.likeMapBtn = async function(mapId) {
   try {
-    await likeMap(mapId);
+    await likeMap(mapId, currentUser.id);
     showToast('Curtida registrada!', 'success');
+    // Update local state so the button reflects updated count without full reload
+    const m = allMaps.find(x => x.id === mapId);
+    if (m) m.likes_count = (m.likes_count || 0) + 1;
     await loadMaps();
   } catch (err) {
     showToast(err.message, 'error');

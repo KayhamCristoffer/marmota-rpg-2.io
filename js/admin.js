@@ -1,10 +1,8 @@
 // ============================================================
-// ADMIN.JS v5 — Toca das Marmotas - Painel Administrativo
-// Changelog v5:
-//  - Shop (Loja): CRUD de itens, controle de estoque, histórico de compras
-//  - Rankings: visualizador histórico por período
-//  - Conquistas: category_type, maps_required, event_start/end, one_time_redeem
-//  - Renomeado para Toca das Marmotas
+// ADMIN.JS v6 — Toca das Marmotas - Painel Administrativo
+// Changelog v6:
+//  - Rankings History: melhor fetch, agrupamento e exibição de erros
+//  - loadRankingHistory: spinner + mensagem de erro mais clara
 // ============================================================
 import { requireAuth, showToast, renderUserInSidebar } from '../supabase/session-manager.js';
 import {
@@ -720,47 +718,49 @@ let currentRankingHistoryMetric = 'coins';
 
 async function loadRankingHistory() {
   const histList = document.getElementById('rankingHistoryList');
-  if (histList) {
-    histList.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>';
-    try {
-      const history = await getRankingHistory(currentRankingHistoryType, currentRankingHistoryMetric, 20);
-      renderRankingHistory(history);
-    } catch (err) {
-      histList.innerHTML = `<div class="empty-state"><h3>Erro: ${err.message}</h3></div>`;
-    }
+  if (!histList) return;
+  histList.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando histórico…</h3></div>';
+  try {
+    const history = await getRankingHistory(currentRankingHistoryType, currentRankingHistoryMetric);
+    renderRankingHistory(history);
+  } catch (err) {
+    histList.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro ao carregar histórico</h3><p style="font-size:.8rem;color:var(--text-muted)">${err.message}</p></div>`;
   }
 }
 
 function renderRankingHistory(history) {
   const histList = document.getElementById('rankingHistoryList');
   if (!histList) return;
-  if (!history.length) {
-    histList.innerHTML = '<div class="empty-state"><i class="fas fa-history"></i><h3>Nenhum histórico disponível</h3><p>Execute um reset para salvar dados históricos.</p></div>';
+  if (!history || !history.length) {
+    histList.innerHTML = '<div class="empty-state"><i class="fas fa-history"></i><h3>Nenhum histórico disponível</h3><p style="font-size:.82rem;color:var(--text-muted)">Execute um reset de ranking para salvar dados históricos.</p></div>';
     return;
   }
   // Agrupar por period_label
   const byPeriod = {};
   for (const row of history) {
-    if (!byPeriod[row.period_label]) byPeriod[row.period_label] = [];
-    byPeriod[row.period_label].push(row);
+    const lbl = row.period_label || 'sem período';
+    if (!byPeriod[lbl]) byPeriod[lbl] = [];
+    byPeriod[lbl].push(row);
   }
   const metricLabel = currentRankingHistoryMetric === 'tokens' ? 'Tokens' : 'Moedas';
   const scoreField  = currentRankingHistoryMetric === 'tokens' ? 'score_tokens' : 'score_coins';
 
+  const periods = Object.keys(byPeriod).sort((a, b) => b.localeCompare(a)).slice(0, 5);
+
   let html = '';
-  for (const [period, rows] of Object.entries(byPeriod).slice(0, 5)) {
-    const sorted = rows.sort((a, b) => (b[scoreField] || 0) - (a[scoreField] || 0));
+  for (const period of periods) {
+    const rows = byPeriod[period].sort((a, b) => (b[scoreField] || 0) - (a[scoreField] || 0));
     html += `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px;margin-bottom:12px">
       <div style="font-family:var(--font-title);color:var(--gold);margin-bottom:10px;font-size:.9rem">📅 ${period}</div>
       <div style="display:flex;flex-direction:column;gap:6px">
-      ${sorted.slice(0, 10).map((row, idx) => {
-        const name = row.users?.profile_nickname || row.users?.nickname || '?';
-        const score = (row[scoreField] || 0).toLocaleString('pt-BR');
+      ${rows.slice(0, 10).map((row, idx) => {
+        const name  = row.users?.profile_nickname || row.users?.nickname || '(usuário deletado)';
+        const score = ((row[scoreField]) || 0).toLocaleString('pt-BR');
         const medals = ['🥇','🥈','🥉'];
         return `<div style="display:flex;align-items:center;gap:10px;font-size:.82rem;color:var(--text-secondary)">
-          <span style="width:20px;text-align:center">${medals[idx] || (idx+1)}</span>
-          <span style="flex:1;color:var(--text-primary)">${name}</span>
-          <span style="color:var(--gold)">${score} ${metricLabel.toLowerCase()}</span>
+          <span style="width:24px;text-align:center;flex-shrink:0">${medals[idx] || (idx + 1)}</span>
+          <span style="flex:1;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
+          <span style="color:var(--gold);white-space:nowrap">${score} ${metricLabel.toLowerCase()}</span>
         </div>`;
       }).join('')}
       </div>
