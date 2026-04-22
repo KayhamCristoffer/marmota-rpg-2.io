@@ -230,7 +230,9 @@ input,select,textarea { font-family:inherit; }
 .xp-label { display:flex; justify-content:space-between; font-size:.7rem; color:var(--text-secondary); margin-bottom:6px; }
 .xp-bar { height:6px; background:var(--bg-secondary); border-radius:3px; overflow:hidden; }
 .xp-fill { height:100%; background:linear-gradient(90deg,var(--purple),var(--blue)); border-radius:3px; transition:width 1s ease; }
-.sidebar-coins { padding:12px 16px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border); color:var(--gold); font-family:var(--font-title); font-size:.95rem; font-weight:700; white-space:nowrap; overflow:hidden; }
+.sidebar-coins { padding:10px 16px; display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--border); font-family:var(--font-title); font-size:.9rem; font-weight:700; white-space:nowrap; overflow:hidden; flex-wrap:wrap; }
+.sidebar-coin-item { display:flex; align-items:center; gap:6px; color:var(--gold); }
+.sidebar-coin-item i { font-size:.85rem; }
 .coins-label { font-size:.7rem; color:var(--text-secondary); font-family:var(--font-body); font-weight:400; }
 .sidebar-nav { flex:1; padding:12px 8px; overflow-y:auto; overflow-x:hidden; }
 .nav-item { display:flex; align-items:center; gap:12px; padding:12px; border-radius:var(--radius-sm); color:var(--text-secondary); font-size:.875rem; font-weight:500; transition:var(--transition); position:relative; white-space:nowrap; overflow:hidden; margin-bottom:2px; cursor:pointer; }
@@ -244,7 +246,7 @@ input,select,textarea { font-family:inherit; }
 .nav-admin:hover { background:rgba(240,192,64,.1); }
 .nav-logout { color:var(--red); }
 .nav-logout:hover { background:rgba(239,68,68,.1); }
-.sidebar.collapsed .user-info,.sidebar.collapsed .sidebar-logo span,.sidebar.collapsed .sidebar-xp,.sidebar.collapsed .sidebar-coins .coins-label,.sidebar.collapsed .nav-item span,.sidebar.collapsed .nav-badge { display:none; }
+.sidebar.collapsed .user-info,.sidebar.collapsed .sidebar-logo span,.sidebar.collapsed .sidebar-xp,.sidebar.collapsed .sidebar-coins .coins-label,.sidebar.collapsed .sidebar-coin-item span,.sidebar.collapsed .nav-item span,.sidebar.collapsed .nav-badge { display:none; }
 .sidebar.collapsed .sidebar-coins,.sidebar.collapsed .sidebar-user { justify-content:center; }
 
 /* ─── MAIN CONTENT ────────────────────────────────────────────── */
