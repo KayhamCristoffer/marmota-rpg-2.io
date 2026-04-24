@@ -1,11 +1,15 @@
 // ============================================================
-// HOME.JS v7 — Toca das Marmotas - Dashboard com Supabase
-// Changelog v7:
-//  - Ranking diário/semanal/mensal: exibe período BRT (data início até fim)
-//  - Loading overlay global para ações assíncronas
-//  - Animação XP bar + efeito float de recompensas (moedas/tokens/xp)
-//  - Like toggle (curtir/descurtir) com animação de coração
-//  - Melhorias gerais de UX: transições, hover, feedback visual
+// HOME.JS v8 — Toca das Marmotas - Dashboard com Supabase
+// Changelog v8:
+//  - Ranking diário/semanal/mensal: período BRT corrigido (sem dia anterior)
+//    exibe data[HH:MM] até data[HH:MM] com timezone America/Sao_Paulo
+//  - Loading overlay global em TODAS as ações assíncronas
+//  - Animação de nível de experiência (XP bar smooth + level-up pulse)
+//  - Efeito de receber moedas/tokens após completar quest (float animado)
+//  - Like/Unlike com animação de coração pop + remoção ao clicar novamente
+//  - Melhorias gerais de UX: page transitions, hover lifts, skeleton loaders
+//  - Contador de level com badge animado na sidebar
+//  - Feedback visual em todas as ações do usuário
 // ============================================================
 import { requireAuth, renderUserInSidebar, showToast, isAdmin } from '../supabase/session-manager.js';
 import {
@@ -46,13 +50,18 @@ const AVATAR_EMOJIS = [
 ];
 
 // ── Loading Overlay ───────────────────────────────────────────
+let _loadingCount = 0;
 function showLoading(text = 'Processando…') {
+  _loadingCount++;
   const ov = document.getElementById('actionOverlay');
   const tx = document.getElementById('actionOverlayText');
   if (ov) { if (tx) tx.textContent = text; ov.classList.add('show'); }
 }
 function hideLoading() {
-  document.getElementById('actionOverlay')?.classList.remove('show');
+  _loadingCount = Math.max(0, _loadingCount - 1);
+  if (_loadingCount === 0) {
+    document.getElementById('actionOverlay')?.classList.remove('show');
+  }
 }
 
 // ── Reward Float Effect ───────────────────────────────────────
@@ -63,16 +72,38 @@ function floatReward(x, y, text, type = 'coins') {
   el.style.left = `${x}px`;
   el.style.top  = `${y}px`;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 950);
+  setTimeout(() => el.remove(), 1100);
 }
 
-function floatRewardFromEl(el, coins, tokens, xp) {
-  const rect = el?.getBoundingClientRect?.() || { left: window.innerWidth / 2, top: window.innerHeight / 2, width: 0 };
+function floatRewardFromEl(triggerEl, coins, tokens, xp) {
+  const rect = triggerEl?.getBoundingClientRect?.() ||
+    { left: window.innerWidth / 2 - 40, top: window.innerHeight / 2, width: 0 };
   const cx = rect.left + rect.width / 2;
   const cy = rect.top + window.scrollY;
-  if (coins)  floatReward(cx - 30, cy, `+${coins} 🪙`, 'coins');
-  if (tokens) setTimeout(() => floatReward(cx + 10, cy - 10, `+${tokens} 💎`, 'tokens'), 80);
-  if (xp)    setTimeout(() => floatReward(cx - 10, cy - 20, `+${xp} XP`, 'xp'), 160);
+  const spread = [0, -22, 22, -12, 12];
+  let delay = 0;
+  if (coins) {
+    spread.slice(0, Math.min(3, Math.ceil(coins / 50) || 1)).forEach((off, i) => {
+      setTimeout(() => floatReward(cx - 20 + off, cy - i * 8, i === 0 ? `+${coins} 🪙` : '🪙', 'coins'), delay + i * 60);
+    });
+    delay += 80;
+  }
+  if (tokens) {
+    setTimeout(() => floatReward(cx + 14, cy - 14, `+${tokens} 💎`, 'tokens'), delay);
+    delay += 80;
+  }
+  if (xp) {
+    setTimeout(() => floatReward(cx - 10, cy - 24, `+${xp} ✨ XP`, 'xp'), delay);
+  }
+}
+
+// ── Skeleton / shimmer loading helper ─────────────────────────
+function skeletonCards(containerId, count = 4, type = 'quest') {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = Array.from({ length: count }, () =>
+    `<div class="skeleton-card skeleton-${type}"><div class="skeleton-line w80"></div><div class="skeleton-line w60"></div><div class="skeleton-line w40"></div></div>`
+  ).join('');
 }
 
 // ── Init ─────────────────────────────────────────────────────
@@ -94,6 +125,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupModals();
   setupProfile();
   setupEmojiPicker();
+  setupModalOverlayClose();
 
   await loadDashboard();
 
@@ -162,9 +194,10 @@ function navigateTo(page) {
 // ── Dashboard ─────────────────────────────────────────────────
 async function loadDashboard() {
   try {
-    const profile  = await getUser(currentUser.id);
+    const profile   = await getUser(currentUser.id);
     const prevLevel = currentProfile?.level || 1;
-    currentProfile = profile;
+    const prevCoins = currentProfile?.coins  || 0;
+    currentProfile  = profile;
     renderUserInSidebar(profile);
     updateTopbar(profile);
 
@@ -179,24 +212,35 @@ async function loadDashboard() {
     const maxX = xpForNextLevel(lv);
     const pct  = maxX > minX ? Math.min(100, ((xp - minX) / (maxX - minX)) * 100) : 0;
 
-    // XP bar animation
+    // XP bar animation suave
     const xpBarEl = document.getElementById('xpFillLarge');
     if (xpBarEl) {
+      // Pequeno delay para CSS transition funcionar
       setTimeout(() => {
         xpBarEl.style.width = `${pct}%`;
-        if (lv > prevLevel) xpBarEl.classList.add('level-up');
-        setTimeout(() => xpBarEl.classList.remove('level-up'), 2600);
+        if (lv > prevLevel) {
+          // Level up! Pulsa badge e barra
+          xpBarEl.classList.add('level-up');
+          setTimeout(() => xpBarEl.classList.remove('level-up'), 2600);
+          const badge = document.getElementById('sidebarLevelBadge');
+          if (badge) { badge.classList.add('level-pop'); setTimeout(() => badge.classList.remove('level-pop'), 700); }
+          showToast(`🎉 Level Up! Você chegou ao Nível ${lv}!`, 'success');
+        }
       }, 300);
     }
     setValue('xpPercent',   `${Math.round(pct)}%`);
     setValue('xpLevelLabel', `Nível ${lv}`);
-    setValue('xpHint',       `${xp.toLocaleString('pt-BR')} / ${maxX.toLocaleString('pt-BR')} XP`);
+    setValue('xpHint',       `${xp.toLocaleString('pt-BR')} / ${maxX.toLocaleString('pt-BR')} XP (Nv.${lv} → Nv.${lv+1})`);
 
-    // Sidebar XP bar also animates
+    // Sidebar XP bar também anima
     const sxpFill = document.getElementById('sidebarXpFill');
     if (sxpFill) {
       const sp = maxX > minX ? Math.min(100, ((xp - minX) / (maxX - minX)) * 100) : 0;
-      setTimeout(() => { sxpFill.style.width = `${sp}%`; sxpFill.classList.add('xp-pulse'); setTimeout(() => sxpFill.classList.remove('xp-pulse'), 700); }, 400);
+      setTimeout(() => {
+        sxpFill.style.width = `${sp}%`;
+        sxpFill.classList.add('xp-pulse');
+        setTimeout(() => sxpFill.classList.remove('xp-pulse'), 700);
+      }, 400);
     }
 
     setValue('dailyCoins',   (profile.coins_daily   || 0).toLocaleString('pt-BR'));
@@ -218,7 +262,16 @@ async function loadDashboard() {
 
 function updateTopbar(profile) {
   const tc = document.getElementById('topbarCoins');
-  if (tc) tc.textContent = (profile.coins || 0).toLocaleString('pt-BR');
+  if (tc) {
+    const newVal = (profile.coins || 0).toLocaleString('pt-BR');
+    if (tc.textContent !== newVal) {
+      tc.textContent = newVal;
+      tc.parentElement?.classList.remove('coin-updated');
+      void tc.parentElement?.offsetWidth;
+      tc.parentElement?.classList.add('coin-updated');
+      setTimeout(() => tc.parentElement?.classList.remove('coin-updated'), 500);
+    }
+  }
   const tt = document.getElementById('topbarTokens');
   if (tt) tt.textContent = (profile.tokens || 0).toLocaleString('pt-BR');
 }
@@ -264,7 +317,7 @@ function renderBadges(badges) {
 async function loadQuests() {
   const grid = document.getElementById('questsGrid');
   if (!grid) return;
-  grid.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>';
+  skeletonCards('questsGrid', 6, 'quest');
 
   const banner = document.getElementById('maintenanceBanner');
   if (banner) banner.style.display = isMaintenanceTime() ? 'flex' : 'none';
@@ -402,7 +455,7 @@ function fmtDate(iso) {
 async function loadMaps() {
   const grid = document.getElementById('mapsGrid');
   if (!grid) return;
-  grid.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando mapas…</h3></div>';
+  skeletonCards('mapsGrid', 4, 'map');
   try {
     allMaps = await getAllMaps();
     renderMaps();
@@ -506,8 +559,10 @@ window.openMapDetail = async function(mapId) {
 
 // ── Ranking ───────────────────────────────────────────────────
 async function loadRanking() {
-  const list = document.getElementById('rankingList');
-  if (list) list.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>';
+  const list   = document.getElementById('rankingList');
+  const podium = document.getElementById('rankingPodium');
+  if (list)   list.innerHTML   = '<div class="empty-state"><i class="fas fa-spinner fa-spin fa-2x" style="opacity:.4"></i></div>';
+  if (podium) podium.innerHTML = '';
   try {
     const data = await getRanking(currentPeriod, currentMetric);
     renderRanking(data);
@@ -527,13 +582,19 @@ function renderRanking(data) {
   const metricLabel = document.getElementById('rankingMetricLabel');
   if (metricLabel) metricLabel.textContent = currentMetric === 'tokens' ? '💎 Tokens' : '🪙 Moedas';
 
-  // Show BRT period range for non-total rankings
+  // Exibe período BRT com data[HH:MM] até data[HH:MM]
   if (periInf) {
     if (currentPeriod !== 'total') {
       const label = getRankingPeriodLabel(currentPeriod);
-      const periodNames = { daily:'Diário', weekly:'Semanal', monthly:'Mensal' };
+      const periodNames = { daily:'Diário 🌅', weekly:'Semanal 📅', monthly:'Mensal 🗓️' };
       periInf.style.display = 'flex';
-      periInf.innerHTML = `<i class="fas fa-clock"></i> <strong>Ranking ${periodNames[currentPeriod]}:</strong>&nbsp;${label}&nbsp;<small style="color:var(--text-muted)">(Horário BRT)</small>`;
+      periInf.innerHTML =
+        `<i class="fas fa-clock"></i>
+         <span>
+           <strong>Ranking ${periodNames[currentPeriod]}:</strong>
+           <span class="period-range-label">${label}</span>
+           <small class="period-tz-note">Horário de Brasília (BRT)</small>
+         </span>`;
     } else {
       periInf.style.display = 'none';
     }
@@ -568,12 +629,12 @@ function renderRanking(data) {
     const isMe = u.id === currentUser?.id;
     const name = u.displayName || u.nickname || '?';
     const avatarContent = u.icon_url
-      ? (isEmoji(u.icon_url) ? u.icon_url : `<img src="${u.icon_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%"/>`)
+      ? (isEmoji(u.icon_url) ? u.icon_url : `<img src="${u.icon_url}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.parentElement.textContent='${name[0].toUpperCase()}'"/>`)
       : name[0].toUpperCase();
-    return `<div class="ranking-item ${isMe ? 'is-me' : ''}">
+    return `<div class="ranking-item ${isMe ? 'is-me' : ''}" style="animation-delay:${idx * 0.04}s">
       <span class="rank-position">${pos}</span>
       <div class="ranking-avatar">${avatarContent}</div>
-      <span class="ranking-name">${name}${isMe ? ' 👈' : ''}</span>
+      <span class="ranking-name">${name}${isMe ? ' <span class="me-badge">você</span>' : ''}</span>
       <span class="ranking-level">Nv.${u.level || 1}</span>
       <span class="ranking-coins"><i class="fas fa-${currentMetric === 'tokens' ? 'gem' : 'coins'}" style="font-size:.8rem;margin-right:4px"></i>${u.score.toLocaleString('pt-BR')}</span>
     </div>`;
@@ -921,6 +982,15 @@ function setupModals() {
   document.getElementById('confirmSubmitMap')?.addEventListener('click', submitMap);
 }
 
+// Fecha modal ao clicar no overlay (fora do modal-box)
+function setupModalOverlayClose() {
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.classList.remove('open');
+    });
+  });
+}
+
 function openModal(id)  { document.getElementById(id)?.classList.add('open'); }
 function closeModal(id) { document.getElementById(id)?.classList.remove('open'); }
 window.closeModal = closeModal;
@@ -946,22 +1016,27 @@ window.openSubmitModal = function(questId, proofRequired = false) {
 };
 
 async function submitQuestDirect(questId) {
-  // Find the button that triggered this to get position for float effect
   const triggerBtn = document.querySelector(`button[onclick*="${questId}"]`);
+  if (triggerBtn) { triggerBtn.disabled = true; triggerBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>'; }
   showLoading('Registrando conclusão…');
   try {
     await createSubmission(currentUser.id, questId, null);
-    // Find quest to get rewards
     const q = allQuests.find(x => x.id === questId);
-    if (q) floatRewardFromEl(triggerBtn, q.reward_coins, q.reward_tokens, q.reward_xp);
-    // Bump stats
+    if (q) {
+      // Float rewards a partir do botão clicado
+      floatRewardFromEl(triggerBtn, q.reward_coins, q.reward_tokens, q.reward_xp);
+    }
     bumpStatCard('statCoins');
     if (q?.reward_tokens) bumpStatCard('statTokens');
+    // Pulsa XP bar brevemente
+    const xpFill = document.getElementById('xpFillLarge');
+    if (xpFill) { xpFill.classList.add('xp-quest-pulse'); setTimeout(() => xpFill.classList.remove('xp-quest-pulse'), 800); }
     showToast('⚔️ Quest registrada! Aguarde aprovação do admin.', 'success');
     await loadQuests();
     await loadMyQuests();
   } catch (err) {
     showToast(err.message || 'Erro ao registrar', 'error');
+    if (triggerBtn) { triggerBtn.disabled = false; triggerBtn.innerHTML = '✅ Registrar Conclusão'; }
   } finally {
     hideLoading();
   }
@@ -978,12 +1053,20 @@ window.openUserMapSubmitModal = function() {
 
 // ── Like Map (toggle: curtir/descurtir) ───────────────────────
 window.likeMapBtn = async function(mapId, btn) {
-  if (!currentUser) return;
-  // Animate immediately (optimistic)
+  if (!currentUser) { showToast('Faça login para curtir mapas', 'warning'); return; }
+
+  // Bloqueia double-click durante processamento
+  if (btn.disabled) return;
+  btn.disabled = true;
+
+  // Feedback visual imediato (otimista)
   const wasLiked = btn.classList.contains('liked');
   btn.classList.toggle('liked', !wasLiked);
   btn.classList.add('like-pop');
-  setTimeout(() => btn.classList.remove('like-pop'), 400);
+  setTimeout(() => btn.classList.remove('like-pop'), 450);
+
+  // Partícula de coração ao curtir
+  if (!wasLiked) spawnHearts(btn);
 
   try {
     const isNowLiked = await likeMap(mapId, currentUser.id);
@@ -991,8 +1074,6 @@ window.likeMapBtn = async function(mapId, btn) {
     if (m) {
       m.likes_count = Math.max(0, (m.likes_count || 0) + (isNowLiked ? 1 : -1));
     }
-    // Update count text in button
-    const icon = btn.querySelector('i');
     const count = m?.likes_count ?? 0;
     if (btn.id === 'mapDetailLikeBtn') {
       btn.innerHTML = `<i class="fas fa-heart"></i> ${isNowLiked ? 'Descurtir' : 'Curtir'} (${count})`;
@@ -1002,17 +1083,41 @@ window.likeMapBtn = async function(mapId, btn) {
     btn.classList.toggle('liked', isNowLiked);
     if (isNowLiked) {
       const rect = btn.getBoundingClientRect();
-      floatReward(rect.left + rect.width / 2, rect.top + window.scrollY - 10, '❤️ +1', 'coins');
+      floatReward(rect.left + rect.width / 2, rect.top + window.scrollY - 10, '❤️', 'coins');
       showToast('❤️ Curtida registrada!', 'success');
     } else {
       showToast('💔 Curtida removida.', 'info');
     }
   } catch (err) {
-    // Revert optimistic update on error
+    // Reverte update otimista em caso de erro
     btn.classList.toggle('liked', wasLiked);
+    if (!wasLiked) clearHearts();
     showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
   }
 };
+
+// Spawna corações flutuantes ao curtir
+function spawnHearts(btn) {
+  const rect = btn.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + window.scrollY;
+  const count = 5;
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => {
+      const h = document.createElement('div');
+      h.className = 'heart-particle';
+      h.textContent = '❤️';
+      h.style.cssText = `left:${cx + (Math.random() - 0.5) * 60}px;top:${cy}px;--dx:${(Math.random() - 0.5) * 80}px;`;
+      document.body.appendChild(h);
+      setTimeout(() => h.remove(), 900);
+    }, i * 60);
+  }
+}
+function clearHearts() {
+  document.querySelectorAll('.heart-particle').forEach(h => h.remove());
+}
 
 async function submitQuest() {
   const btn     = document.getElementById('confirmSubmitQuest');

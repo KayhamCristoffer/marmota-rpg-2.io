@@ -599,6 +599,169 @@ input,select,textarea { font-family:inherit; }
 /* ─── SUPABASE BADGE ──────────────────────────────────────────── */
 .supabase-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:20px; background:rgba(62,207,142,.1); border:1px solid rgba(62,207,142,.3); color:#3ecf8e; font-size:.72rem; font-weight:700; }
 
+/* ─── SKELETON LOADER ─────────────────────────────────────────── */
+.skeleton-card {
+  background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-md); padding:20px;
+  display:flex; flex-direction:column; gap:12px;
+  overflow:hidden; position:relative;
+}
+.skeleton-card::after {
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.04) 50%,transparent 100%);
+  animation:skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  0%   { transform:translateX(-100%); }
+  100% { transform:translateX(100%); }
+}
+.skeleton-line {
+  height:12px; border-radius:6px;
+  background:rgba(255,255,255,.06);
+}
+.skeleton-line.w80 { width:80%; }
+.skeleton-line.w60 { width:60%; }
+.skeleton-line.w40 { width:40%; height:28px; margin-top:4px; }
+.skeleton-map { min-height:200px; }
+.skeleton-map .skeleton-line.w80 { height:100px; width:100%; border-radius:var(--radius-sm); }
+
+/* ─── HEART PARTICLE ──────────────────────────────────────────── */
+.heart-particle {
+  position:fixed; pointer-events:none; z-index:99999;
+  font-size:1.1rem;
+  animation:heart-fly .9s ease-out forwards;
+}
+@keyframes heart-fly {
+  0%   { opacity:1; transform:translate(0,0) scale(1); }
+  100% { opacity:0; transform:translate(var(--dx, 0px), -70px) scale(.4); }
+}
+
+/* ─── PERIOD RANGE LABEL (Ranking) ───────────────────────────── */
+.ranking-period-info {
+  display:flex; align-items:flex-start; gap:10px;
+  font-size:.8rem; color:var(--text-secondary);
+  background:linear-gradient(135deg,rgba(240,192,64,.07),rgba(240,192,64,.03));
+  border:1px solid rgba(240,192,64,.18);
+  border-radius:var(--radius-md); padding:10px 16px; margin-bottom:18px;
+  flex-wrap:wrap; line-height:1.6;
+}
+.ranking-period-info i { color:var(--gold); flex-shrink:0; margin-top:2px; }
+.ranking-period-info strong { color:var(--gold-light); }
+.period-range-label {
+  display:block; font-family:var(--font-title); font-size:.82rem;
+  color:var(--text-primary); margin-top:1px;
+  letter-spacing:.02em;
+}
+.period-tz-note {
+  display:block; font-size:.7rem; color:var(--text-muted);
+  margin-top:1px;
+}
+
+/* ─── ME BADGE (ranking) ──────────────────────────────────────── */
+.me-badge {
+  display:inline-flex; align-items:center;
+  background:rgba(240,192,64,.18); border:1px solid rgba(240,192,64,.35);
+  color:var(--gold); font-size:.62rem; font-weight:700;
+  border-radius:8px; padding:1px 6px; margin-left:6px;
+  text-transform:uppercase; letter-spacing:.04em; vertical-align:middle;
+}
+
+/* ─── RANKING LIST ENTRY ANIMATION ───────────────────────────── */
+.ranking-item { animation:ranking-slide-in .3s ease both; }
+@keyframes ranking-slide-in {
+  from { opacity:0; transform:translateX(-12px); }
+  to   { opacity:1; transform:translateX(0); }
+}
+
+/* ─── NAV ITEM ACTIVE INDICATOR ───────────────────────────────── */
+.nav-item { transition:background .18s ease, color .18s ease, border-left .18s ease; }
+.nav-item.active::after {
+  content:''; position:absolute; right:0; top:20%; bottom:20%;
+  width:3px; background:var(--gold); border-radius:2px 0 0 2px;
+}
+
+/* ─── PAGE TRANSITION ─────────────────────────────────────────── */
+.page.active { animation:page-enter .28s cubic-bezier(.22,1,.36,1); }
+@keyframes page-enter {
+  from { opacity:0; transform:translateY(18px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+
+/* ─── QUEST CARD STAGGER ──────────────────────────────────────── */
+.quest-card { animation:quest-card-in .35s ease both; }
+
+/* ─── XP BAR QUEST PULSE ──────────────────────────────────────── */
+@keyframes xp-quest-pulse {
+  0%,100% { filter:brightness(1); }
+  40%     { filter:brightness(2) saturate(1.6); box-shadow:0 0 16px rgba(168,85,247,.6); }
+}
+.xp-fill-large.xp-quest-pulse { animation:xp-quest-pulse .7s ease-out; }
+
+/* ─── PERIOD CARD HOVER ENHANCED ─────────────────────────────── */
+.period-card { cursor:default; }
+.period-card:hover {
+  transform:translateY(-5px) scale(1.02);
+  border-color:rgba(240,192,64,.4);
+  box-shadow:0 8px 24px rgba(240,192,64,.12);
+}
+
+/* ─── BADGE ITEM HOVER ────────────────────────────────────────── */
+.badge-item-full {
+  cursor:default;
+  transition:background .2s, border-color .2s, transform .2s, box-shadow .2s;
+}
+
+/* ─── MAP CARD HOVER ──────────────────────────────────────────── */
+.map-card { transition:border-color .22s, transform .22s, box-shadow .22s; }
+.map-card:hover {
+  transform:translateY(-6px);
+  box-shadow:0 12px 32px rgba(0,0,0,.4), 0 0 0 1px rgba(240,192,64,.1);
+}
+
+/* ─── LIKE BTN LIKED STATE ────────────────────────────────────── */
+.btn-like.liked { background:rgba(239,68,68,.13); border-color:rgba(239,68,68,.5); }
+
+/* ─── FILTER BTN HOVER ────────────────────────────────────────── */
+.filter-btn { transition:background .18s, border-color .18s, color .18s, transform .12s; }
+.filter-btn:hover:not(.active) { transform:translateY(-1px); }
+.filter-btn.active { box-shadow:0 2px 10px rgba(240,192,64,.25); }
+
+/* ─── PROFILE CARD PULSE ON LOAD ──────────────────────────────── */
+@keyframes profile-in {
+  from { opacity:0; transform:scale(.97) translateY(10px); }
+  to   { opacity:1; transform:scale(1) translateY(0); }
+}
+.profile-card { animation:profile-in .4s cubic-bezier(.34,1.56,.64,1); }
+
+/* ─── STAT CARD STAGGER ───────────────────────────────────────── */
+.stats-grid .stat-card:nth-child(1) { animation-delay:.04s }
+.stats-grid .stat-card:nth-child(2) { animation-delay:.08s }
+.stats-grid .stat-card:nth-child(3) { animation-delay:.12s }
+.stats-grid .stat-card:nth-child(4) { animation-delay:.16s }
+.stats-grid .stat-card:nth-child(5) { animation-delay:.20s }
+.stats-grid .stat-card:nth-child(6) { animation-delay:.24s }
+@keyframes stat-card-in {
+  from { opacity:0; transform:translateY(14px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+.stats-grid .stat-card { animation:stat-card-in .35s ease both; }
+
+/* ─── TOPBAR COIN ANIMATION ───────────────────────────────────── */
+@keyframes coin-update {
+  0%   { transform:scale(1); }
+  40%  { transform:scale(1.22); color:#ffe566; }
+  100% { transform:scale(1); }
+}
+.topbar-coins span.coin-updated { animation:coin-update .4s ease-out; }
+
+/* ─── LEVEL BADGE PULSE ON LEVEL UP ──────────────────────────── */
+@keyframes level-badge-pop {
+  0%   { transform:scale(1); }
+  50%  { transform:scale(1.5); background:var(--gold-light); color:#000; box-shadow:0 0 12px var(--gold); }
+  100% { transform:scale(1); }
+}
+.user-level-badge.level-pop { animation:level-badge-pop .6s cubic-bezier(.34,1.56,.64,1); }
+
 /* ─── RESPONSIVE ──────────────────────────────────────────────── */
 @media (max-width:768px) {
   .sidebar { transform:translateX(-100%); }
