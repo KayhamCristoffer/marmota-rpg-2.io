@@ -1,9 +1,9 @@
 // ================================================================
-// SUPABASE DATABASE v6 — Toca das Marmotas
-// Changelog v6:
-//  - likeMap: 1 like por usuário via localStorage
-//  - incrementMapView: incrementa views ao abrir detalhe
-//  - getRankingHistory: query melhorada, coluna explícita, error log
+// SUPABASE DATABASE v8 — Toca das Marmotas
+// Changelog v8:
+//  - getRankingPeriodLabel: exportada para uso no frontend (exibe período BRT)
+//  - hasLikedMap: exportada para verificação sem async
+//  - brtDateLabel: gera label completo com início/fim do período para o histórico
 // ================================================================
 import { sb } from './client.js';
 import { ADMIN_UID } from './supabase-config.js';
@@ -420,15 +420,25 @@ export async function deleteMap(mapId) {
   if (error) throw error;
 }
 
+export function hasLikedMap(userId, mapId) {
+  return !!localStorage.getItem(`map_liked_${userId}_${mapId}`);
+}
+
 export async function likeMap(mapId, userId) {
-  // Prevent duplicate likes: track in localStorage
   const storageKey = `map_liked_${userId}_${mapId}`;
   if (localStorage.getItem(storageKey)) {
-    throw new Error('Você já curtiu este mapa!');
+    // UNLIKE: decrement
+    const { data: m } = await sb.from('maps').select('likes_count').eq('id', mapId).single();
+    if (m) {
+      await sb.from('maps').update({ likes_count: Math.max(0, (m.likes_count || 1) - 1) }).eq('id', mapId);
+    }
+    localStorage.removeItem(storageKey);
+    return false; // unliked
   }
   const { error } = await sb.rpc('increment_map_likes', { map_id: mapId });
   if (error) throw error;
   localStorage.setItem(storageKey, '1');
+  return true; // liked
 }
 
 export async function incrementMapView(mapId) {
@@ -441,6 +451,49 @@ export async function incrementMapView(mapId) {
 }
 
 // ─── RANKING ──────────────────────────────────────────────────
+
+// Retorna {start, end} do período atual em BRT (UTC-3)
+function getPeriodRange(type) {
+  const nowUtc = new Date();
+  // BRT = UTC-3
+  const brtOffset = -3 * 60; // minutes
+  const brtNow = new Date(nowUtc.getTime() + brtOffset * 60000);
+
+  if (type === 'daily') {
+    // Hoje BRT: 00:00 até 23:59
+    const start = new Date(brtNow);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(brtNow);
+    end.setHours(23, 59, 59, 0);
+    return { start, end };
+  }
+  if (type === 'weekly') {
+    // Semana corrente: segunda até domingo
+    const day = brtNow.getDay(); // 0=dom
+    const diffToMon = (day === 0 ? -6 : 1 - day);
+    const start = new Date(brtNow);
+    start.setDate(brtNow.getDate() + diffToMon);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 0);
+    return { start, end };
+  }
+  if (type === 'monthly') {
+    const start = new Date(brtNow.getFullYear(), brtNow.getMonth(), 1, 0, 0, 0, 0);
+    const end   = new Date(brtNow.getFullYear(), brtNow.getMonth() + 1, 0, 23, 59, 59, 0);
+    return { start, end };
+  }
+  return null;
+}
+
+export function getRankingPeriodLabel(type) {
+  const range = getPeriodRange(type);
+  if (!range) return null;
+  const fmt = (d) => d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' });
+  const fmtT = (d) => d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+  return `${fmt(range.start)} [${fmtT(range.start)}] até ${fmt(range.end)} [${fmtT(range.end)}]`;
+}
 
 export async function getRanking(type = 'total', metric = 'coins') {
   const prefix = metric === 'tokens' ? 'tokens' : 'coins';
@@ -459,10 +512,12 @@ export async function getRanking(type = 'total', metric = 'coins') {
     .order(field, { ascending: false })
     .limit(50);
   if (error) throw error;
+  const periodLabel = type !== 'total' ? getRankingPeriodLabel(type) : null;
   return (data ?? []).map(u => ({
     ...u,
     displayName: u.profile_nickname || u.nickname,
-    score: u[field] || 0
+    score: u[field] || 0,
+    periodLabel
   }));
 }
 
@@ -542,12 +597,25 @@ export async function checkAndGrantAchievements(userId) {
 
 // ─── RANKING RESETS ───────────────────────────────────────────
 
+// Gera label de período para o histórico, no formato:
+// "DD/MM/AAAA [HH:MM] até DD/MM/AAAA [HH:MM] BRT"
+function brtPeriodLabel(type) {
+  const range = getPeriodRange(type);
+  if (!range) {
+    // fallback simples
+    return new Date(Date.now() - 3 * 3600000).toISOString().replace('T', ' ').substring(0, 16) + ' BRT';
+  }
+  const fmt  = (d) => d.toLocaleDateString('pt-BR',  { day:'2-digit', month:'2-digit', year:'numeric' });
+  const fmtT = (d) => d.toLocaleTimeString('pt-BR',  { hour:'2-digit', minute:'2-digit' });
+  return `${fmt(range.start)} [${fmtT(range.start)}] até ${fmt(range.end)} [${fmtT(range.end)}] BRT`;
+}
+
 export async function resetDailyRanking() {
   const { data: users } = await sb.from('users').select('id,coins_daily,tokens_daily').gt('coins_daily', 0);
   if (users?.length) {
-    const today = new Date().toISOString().split('T')[0];
+    const label = brtPeriodLabel('daily');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'daily', score_coins: u.coins_daily, score_tokens: u.tokens_daily || 0, period_label: today }))
+      users.map(u => ({ user_id: u.id, score_type: 'daily', score_coins: u.coins_daily, score_tokens: u.tokens_daily || 0, period_label: label }))
     );
   }
   await sb.from('users').update({ coins_daily: 0, tokens_daily: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
@@ -556,9 +624,9 @@ export async function resetDailyRanking() {
 export async function resetWeeklyRanking() {
   const { data: users } = await sb.from('users').select('id,coins_weekly,tokens_weekly').gt('coins_weekly', 0);
   if (users?.length) {
-    const week = getWeekLabel();
+    const label = brtPeriodLabel('weekly');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'weekly', score_coins: u.coins_weekly, score_tokens: u.tokens_weekly || 0, period_label: week }))
+      users.map(u => ({ user_id: u.id, score_type: 'weekly', score_coins: u.coins_weekly, score_tokens: u.tokens_weekly || 0, period_label: label }))
     );
   }
   await sb.from('users').update({ coins_weekly: 0, tokens_weekly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
@@ -567,9 +635,9 @@ export async function resetWeeklyRanking() {
 export async function resetMonthlyRanking() {
   const { data: users } = await sb.from('users').select('id,coins_monthly,tokens_monthly').gt('coins_monthly', 0);
   if (users?.length) {
-    const month = new Date().toISOString().substring(0, 7);
+    const label = brtPeriodLabel('monthly');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'monthly', score_coins: u.coins_monthly, score_tokens: u.tokens_monthly || 0, period_label: month }))
+      users.map(u => ({ user_id: u.id, score_type: 'monthly', score_coins: u.coins_monthly, score_tokens: u.tokens_monthly || 0, period_label: label }))
     );
   }
   await sb.from('users').update({ coins_monthly: 0, tokens_monthly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');

@@ -1,9 +1,11 @@
 // ============================================================
-// HOME.JS v6 — Toca das Marmotas - Dashboard com Supabase
-// Changelog v6:
-//  - Tokens visíveis em sidebar-coins e topbar-coins
-//  - Maps: 1 like por usuário (localStorage), incrementa views ao abrir detalhe
-//  - Import incrementMapView
+// HOME.JS v7 — Toca das Marmotas - Dashboard com Supabase
+// Changelog v7:
+//  - Ranking diário/semanal/mensal: exibe período BRT (data início até fim)
+//  - Loading overlay global para ações assíncronas
+//  - Animação XP bar + efeito float de recompensas (moedas/tokens/xp)
+//  - Like toggle (curtir/descurtir) com animação de coração
+//  - Melhorias gerais de UX: transições, hover, feedback visual
 // ============================================================
 import { requireAuth, renderUserInSidebar, showToast, isAdmin } from '../supabase/session-manager.js';
 import {
@@ -11,7 +13,8 @@ import {
   getUserBadges, getAllAchievements, getRanking, subscribeRanking,
   unsubscribeRanking, createSubmission, submitMapByUser,
   updateUserProfile, isMaintenanceTime,
-  calcLevel, xpForLevel, xpForNextLevel, likeMap, formatCooldown,
+  calcLevel, xpForLevel, xpForNextLevel, likeMap, hasLikedMap,
+  formatCooldown, getRankingPeriodLabel,
   getShopItems, buyShopItem, getUserPurchases,
   getShopFavorites, addShopFavorite, removeShopFavorite,
   incrementMapView
@@ -41,6 +44,36 @@ const AVATAR_EMOJIS = [
   '🏔️','🌋','🌈','🌙','☀️','🌊','🍄','🌿','🌴','🌵',
   '😎','😈','👿','💀','☠️','🤖','👾','🎭','🥷','🧿'
 ];
+
+// ── Loading Overlay ───────────────────────────────────────────
+function showLoading(text = 'Processando…') {
+  const ov = document.getElementById('actionOverlay');
+  const tx = document.getElementById('actionOverlayText');
+  if (ov) { if (tx) tx.textContent = text; ov.classList.add('show'); }
+}
+function hideLoading() {
+  document.getElementById('actionOverlay')?.classList.remove('show');
+}
+
+// ── Reward Float Effect ───────────────────────────────────────
+function floatReward(x, y, text, type = 'coins') {
+  const el = document.createElement('div');
+  el.className = `reward-float ${type}`;
+  el.textContent = text;
+  el.style.left = `${x}px`;
+  el.style.top  = `${y}px`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 950);
+}
+
+function floatRewardFromEl(el, coins, tokens, xp) {
+  const rect = el?.getBoundingClientRect?.() || { left: window.innerWidth / 2, top: window.innerHeight / 2, width: 0 };
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + window.scrollY;
+  if (coins)  floatReward(cx - 30, cy, `+${coins} 🪙`, 'coins');
+  if (tokens) setTimeout(() => floatReward(cx + 10, cy - 10, `+${tokens} 💎`, 'tokens'), 80);
+  if (xp)    setTimeout(() => floatReward(cx - 10, cy - 20, `+${xp} XP`, 'xp'), 160);
+}
 
 // ── Init ─────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -88,9 +121,12 @@ function setupSidebar() {
   topMenu?.addEventListener('click', () => sidebar?.classList.toggle('mobile-open'));
 
   document.getElementById('navLogout')?.addEventListener('click', async () => {
-    const { signOut } = await import('../supabase/database.js');
-    await signOut();
-    window.location.href = 'index.html';
+    showLoading('Saindo…');
+    try {
+      const { signOut } = await import('../supabase/database.js');
+      await signOut();
+      window.location.href = 'index.html';
+    } finally { hideLoading(); }
   });
 }
 
@@ -127,6 +163,7 @@ function navigateTo(page) {
 async function loadDashboard() {
   try {
     const profile  = await getUser(currentUser.id);
+    const prevLevel = currentProfile?.level || 1;
     currentProfile = profile;
     renderUserInSidebar(profile);
     updateTopbar(profile);
@@ -141,10 +178,26 @@ async function loadDashboard() {
     const minX = xpForLevel(lv);
     const maxX = xpForNextLevel(lv);
     const pct  = maxX > minX ? Math.min(100, ((xp - minX) / (maxX - minX)) * 100) : 0;
-    setStyle('xpFillLarge', 'width', `${pct}%`);
+
+    // XP bar animation
+    const xpBarEl = document.getElementById('xpFillLarge');
+    if (xpBarEl) {
+      setTimeout(() => {
+        xpBarEl.style.width = `${pct}%`;
+        if (lv > prevLevel) xpBarEl.classList.add('level-up');
+        setTimeout(() => xpBarEl.classList.remove('level-up'), 2600);
+      }, 300);
+    }
     setValue('xpPercent',   `${Math.round(pct)}%`);
     setValue('xpLevelLabel', `Nível ${lv}`);
     setValue('xpHint',       `${xp.toLocaleString('pt-BR')} / ${maxX.toLocaleString('pt-BR')} XP`);
+
+    // Sidebar XP bar also animates
+    const sxpFill = document.getElementById('sidebarXpFill');
+    if (sxpFill) {
+      const sp = maxX > minX ? Math.min(100, ((xp - minX) / (maxX - minX)) * 100) : 0;
+      setTimeout(() => { sxpFill.style.width = `${sp}%`; sxpFill.classList.add('xp-pulse'); setTimeout(() => sxpFill.classList.remove('xp-pulse'), 700); }, 400);
+    }
 
     setValue('dailyCoins',   (profile.coins_daily   || 0).toLocaleString('pt-BR'));
     setValue('weeklyCoins',  (profile.coins_weekly  || 0).toLocaleString('pt-BR'));
@@ -178,6 +231,17 @@ function setValue(id, val) {
 function setStyle(id, prop, val) {
   const el = document.getElementById(id);
   if (el) el.style[prop] = val;
+}
+
+function bumpStatCard(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const card = el.closest('.stat-card');
+  if (!card) return;
+  card.classList.remove('bumping');
+  void card.offsetWidth; // reflow
+  card.classList.add('bumping');
+  setTimeout(() => card.classList.remove('bumping'), 500);
 }
 
 function renderBadges(badges) {
@@ -225,7 +289,7 @@ function renderQuests() {
   const typeLabels = { daily:'Diária', weekly:'Semanal', monthly:'Mensal', event:'Evento' };
   const typeIcons  = { daily:'fa-sun', weekly:'fa-calendar-week', monthly:'fa-calendar-alt', event:'fa-star' };
 
-  grid.innerHTML = quests.map(q => {
+  grid.innerHTML = quests.map((q, qi) => {
     const subList = mySubmissions.filter(s => s.quest_id === q.id);
     const sub     = subList[0];
     const status  = sub?.status;
@@ -248,7 +312,6 @@ function renderQuests() {
     } else if (status === 'rejected') {
       btnText = '🔄 Reenviar Comprovante';
     } else {
-      // Nenhuma submissão ainda
       if (q.proof_required === false) {
         btnText = '✅ Registrar Conclusão';
       } else {
@@ -259,18 +322,18 @@ function renderQuests() {
     const levelLock = (currentProfile?.level || 1) < (q.min_level || 1);
     if (levelLock) { btnClass = 'taken'; btnText = `🔒 Nível ${q.min_level} necessário`; btnDisabled = 'disabled'; }
 
-    return `<div class="quest-card" data-type="${q.type}">
+    return `<div class="quest-card" data-type="${q.type}" style="animation-delay:${qi * 0.04}s">
       <span class="quest-type-badge type-${q.type}"><i class="fas ${typeIcons[q.type] || 'fa-scroll'}"></i> ${typeLabels[q.type] || q.type}</span>
       <h3 class="quest-title">${q.icon_url ? q.icon_url + ' ' : ''}${q.title}</h3>
       <p class="quest-description">${q.description || ''}</p>
       <div class="quest-meta">
-        <span class="quest-reward"><i class="fas fa-coins"></i> ${q.reward_coins || 0} <span class="xp-reward">+${q.reward_xp || 0} XP</span></span>
+        <span class="quest-reward"><i class="fas fa-coins"></i> ${q.reward_coins || 0} <span class="xp-reward">+${q.reward_xp || 0} XP</span>${q.reward_tokens ? ` <span style="color:var(--purple-light)">+${q.reward_tokens} 💎</span>` : ''}</span>
         ${q.min_level > 1 ? `<span class="quest-slots"><i class="fas fa-lock"></i> Nível ${q.min_level}+</span>` : ''}
         ${q.cooldown_hours > 0 ? `<span style="font-size:.72rem;color:var(--text-muted)"><i class="fas fa-redo"></i> ${q.cooldown_hours}h cooldown</span>` : ''}
       </div>
       ${extraHtml}
       <button class="btn-take-quest ${btnClass}" ${btnDisabled}
-        onclick="openSubmitModal('${q.id}', ${!!q.proof_required})">${btnText}</button>
+        onclick="openSubmitModal('${q.id}', ${!!q.proof_required})" data-reward-coins="${q.reward_coins||0}" data-reward-tokens="${q.reward_tokens||0}" data-reward-xp="${q.reward_xp||0}">${btnText}</button>
     </div>`;
   }).join('');
 }
@@ -316,6 +379,7 @@ async function loadMyQuests() {
           <div class="my-quest-meta">
             <span><i class="fas fa-coins"></i> +${q?.reward_coins || 0}</span>
             <span><i class="fas fa-star"></i> +${q?.reward_xp || 0} XP</span>
+            ${q?.reward_tokens ? `<span style="color:var(--purple-light)"><i class="fas fa-gem"></i> +${q.reward_tokens}</span>` : ''}
           </div>
           <div class="my-quest-timestamps">${submittedAt}${reviewedAt}</div>
           ${cdHtml}
@@ -356,8 +420,8 @@ function renderMaps() {
     return;
   }
   grid.innerHTML = maps.map(m => {
-    // Criador: usa profile_nickname ou nickname do usuário, se disponível via join
     const creator = m.users?.profile_nickname || m.users?.nickname || null;
+    const liked   = currentUser ? hasLikedMap(currentUser.id, m.id) : false;
     return `
     <div class="map-card" data-type="${m.type || 'all'}">
       <div class="map-image">${
@@ -370,13 +434,13 @@ function renderMaps() {
         <p class="map-description" style="overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${m.description || ''}</p>
         ${creator ? `<div class="map-creator-tag"><i class="fas fa-user"></i> ${creator}</div>` : ''}
         <div class="map-meta">
-          <span><i class="fas fa-heart"></i> ${m.likes_count || 0}</span>
+          <span><i class="fas fa-heart" style="color:var(--red)"></i> ${m.likes_count || 0}</span>
           <span><i class="fas fa-eye"></i> ${m.views_count || 0}</span>
           ${m.type ? `<span class="map-type-badge">${m.type}</span>` : ''}
         </div>
         <div class="map-actions">
           ${m.download_url ? `<a class="btn-map-action btn-download" href="${m.download_url}" target="_blank"><i class="fas fa-download"></i> Baixar</a>` : ''}
-          <button class="btn-map-action btn-like" onclick="likeMapBtn('${m.id}', this)"><i class="fas fa-heart"></i> ${m.likes_count || 0}</button>
+          <button class="btn-map-action btn-like${liked ? ' liked' : ''}" onclick="likeMapBtn('${m.id}', this)" title="${liked ? 'Remover curtida' : 'Curtir mapa'}"><i class="fas fa-heart"></i> ${m.likes_count || 0}</button>
           <button class="btn-map-action" style="background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.3);color:var(--gold)" onclick="openMapDetail('${m.id}')"><i class="fas fa-info-circle"></i> Mais Detalhes</button>
         </div>
       </div>
@@ -399,13 +463,13 @@ window.openMapDetail = async function(mapId) {
   const m = allMaps.find(x => x.id === mapId);
   if (!m) return;
 
-  // Increment view count (fire-and-forget, update local state)
   try {
     await incrementMapView(mapId);
     m.views_count = (m.views_count || 0) + 1;
   } catch (e) { /* ignore */ }
 
   const creator = m.users?.profile_nickname || m.users?.nickname || null;
+  const liked   = currentUser ? hasLikedMap(currentUser.id, m.id) : false;
   const titleEl = document.getElementById('mapDetailTitle');
   const bodyEl  = document.getElementById('mapDetailBody');
   if (titleEl) titleEl.innerHTML = `<i class="fas fa-map"></i> ${m.title}`;
@@ -416,22 +480,24 @@ window.openMapDetail = async function(mapId) {
         ${m.description ? `<p style="color:var(--text-secondary);font-size:.9rem;line-height:1.5">${m.description}</p>` : ''}
         ${creator ? `<div class="map-creator-tag"><i class="fas fa-user"></i> Criado por: <strong style="color:var(--text-primary)">${creator}</strong></div>` : ''}
         <div class="map-detail-row">
-          <div class="map-detail-stat"><i class="fas fa-heart"></i> ${m.likes_count || 0} curtidas</div>
+          <div class="map-detail-stat"><i class="fas fa-heart" style="color:var(--red)"></i> ${m.likes_count || 0} curtidas</div>
           <div class="map-detail-stat"><i class="fas fa-eye"></i> ${m.views_count || 0} visualizações</div>
           ${m.type ? `<div class="map-detail-stat"><i class="fas fa-tag"></i> ${m.type}</div>` : ''}
         </div>
         ${(m.reward_coins || m.reward_xp || m.reward_tokens) ? `
         <div>
-          <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:6px">Recompensas:</div>
+          <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:6px">Recompensas ao baixar:</div>
           <div class="map-detail-rewards">
             ${m.reward_coins  ? `<span class="map-detail-reward-badge"><i class="fas fa-coins"></i> ${m.reward_coins} moedas</span>` : ''}
             ${m.reward_xp     ? `<span class="map-detail-reward-badge"><i class="fas fa-star"></i> ${m.reward_xp} XP</span>` : ''}
             ${m.reward_tokens ? `<span class="map-detail-reward-badge"><i class="fas fa-gem"></i> ${m.reward_tokens} tokens</span>` : ''}
           </div>
         </div>` : ''}
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
           ${m.download_url ? `<a class="btn-primary" href="${m.download_url}" target="_blank" style="text-decoration:none;font-size:.85rem"><i class="fas fa-download"></i> Baixar Mapa</a>` : ''}
-          <button class="btn-secondary" style="font-size:.85rem" onclick="likeMapBtn('${m.id}', this)"><i class="fas fa-heart"></i> Curtir (${m.likes_count || 0})</button>
+          <button class="btn-secondary btn-like${liked ? ' liked' : ''}" style="font-size:.85rem" id="mapDetailLikeBtn" onclick="likeMapBtn('${m.id}', this)">
+            <i class="fas fa-heart"></i> ${liked ? 'Descurtir' : 'Curtir'} (${m.likes_count || 0})
+          </button>
         </div>
       </div>`;
   }
@@ -440,28 +506,42 @@ window.openMapDetail = async function(mapId) {
 
 // ── Ranking ───────────────────────────────────────────────────
 async function loadRanking() {
+  const list = document.getElementById('rankingList');
+  if (list) list.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>';
   try {
     const data = await getRanking(currentPeriod, currentMetric);
     renderRanking(data);
     if (rankingChannel) unsubscribeRanking(rankingChannel);
     rankingChannel = subscribeRanking(currentPeriod, currentMetric, renderRanking);
   } catch (err) {
-    const el = document.getElementById('rankingList');
-    if (el) el.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro ao carregar ranking</h3></div>`;
+    if (list) list.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro ao carregar ranking</h3></div>`;
   }
 }
 
 function renderRanking(data) {
-  const podium = document.getElementById('rankingPodium');
-  const list   = document.getElementById('rankingList');
+  const podium  = document.getElementById('rankingPodium');
+  const list    = document.getElementById('rankingList');
+  const periInf = document.getElementById('rankingPeriodInfo');
   if (!podium || !list) return;
 
   const metricLabel = document.getElementById('rankingMetricLabel');
   if (metricLabel) metricLabel.textContent = currentMetric === 'tokens' ? '💎 Tokens' : '🪙 Moedas';
 
+  // Show BRT period range for non-total rankings
+  if (periInf) {
+    if (currentPeriod !== 'total') {
+      const label = getRankingPeriodLabel(currentPeriod);
+      const periodNames = { daily:'Diário', weekly:'Semanal', monthly:'Mensal' };
+      periInf.style.display = 'flex';
+      periInf.innerHTML = `<i class="fas fa-clock"></i> <strong>Ranking ${periodNames[currentPeriod]}:</strong>&nbsp;${label}&nbsp;<small style="color:var(--text-muted)">(Horário BRT)</small>`;
+    } else {
+      periInf.style.display = 'none';
+    }
+  }
+
   if (!data.length) {
     podium.innerHTML = '';
-    list.innerHTML = '<div class="empty-state"><i class="fas fa-trophy"></i><h3>Nenhum dado de ranking</h3></div>';
+    list.innerHTML = '<div class="empty-state"><i class="fas fa-trophy"></i><h3>Nenhum dado de ranking para este período</h3><p style="font-size:.82rem">Os pontos são zerados a cada reset. Complete quests para aparecer aqui!</p></div>';
     return;
   }
 
@@ -494,7 +574,7 @@ function renderRanking(data) {
       <span class="rank-position">${pos}</span>
       <div class="ranking-avatar">${avatarContent}</div>
       <span class="ranking-name">${name}${isMe ? ' 👈' : ''}</span>
-      <span class="ranking-level">${u.level || 1}</span>
+      <span class="ranking-level">Nv.${u.level || 1}</span>
       <span class="ranking-coins"><i class="fas fa-${currentMetric === 'tokens' ? 'gem' : 'coins'}" style="font-size:.8rem;margin-right:4px"></i>${u.score.toLocaleString('pt-BR')}</span>
     </div>`;
   }).join('');
@@ -540,10 +620,8 @@ function setupShopTabs() {
 }
 
 async function loadShop() {
-  // Update balance display
   setValue('shopCoins',  (currentProfile?.coins  || 0).toLocaleString('pt-BR'));
   setValue('shopTokens', (currentProfile?.tokens || 0).toLocaleString('pt-BR'));
-
   try {
     [shopItems, shopFavorites] = await Promise.all([
       getShopItems(),
@@ -691,11 +769,15 @@ window.confirmBuyItem = async function() {
   const btn = document.getElementById('confirmBuyBtn');
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Processando…';
+  showLoading('Processando compra…');
   try {
     await buyShopItem(currentUser.id, itemId);
     closeModal('buyItemModal');
     showToast(`✅ ${item.name} comprado com sucesso!`, 'success');
-    // Atualiza perfil e loja
+    // Float cost deduction
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    if (item.price_coins)  floatReward(cx - 40, cy, `-${item.price_coins} 🪙`, 'coins');
+    if (item.price_tokens) floatReward(cx + 10, cy, `-${item.price_tokens} 💎`, 'tokens');
     currentProfile = await getUser(currentUser.id);
     setValue('shopCoins',  (currentProfile.coins  || 0).toLocaleString('pt-BR'));
     setValue('shopTokens', (currentProfile.tokens || 0).toLocaleString('pt-BR'));
@@ -708,6 +790,7 @@ window.confirmBuyItem = async function() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-check"></i> Confirmar';
+    hideLoading();
   }
 };
 
@@ -772,6 +855,7 @@ function setupProfile() {
 
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Salvando…';
+    showLoading('Salvando perfil…');
     try {
       const updated = await updateUserProfile(currentUser.id, {
         profile_nickname: pnick,
@@ -784,12 +868,13 @@ function setupProfile() {
       }
       renderUserInSidebar(currentProfile);
       await loadProfile();
-      showToast('Perfil atualizado com sucesso!', 'success');
+      showToast('✅ Perfil atualizado com sucesso!', 'success');
     } catch (err) {
       showToast(err.message || 'Erro ao salvar', 'error');
     } finally {
       btn.disabled = false;
       btn.innerHTML = '<i class="fas fa-save"></i> Salvar';
+      hideLoading();
     }
   });
 }
@@ -841,9 +926,8 @@ function closeModal(id) { document.getElementById(id)?.classList.remove('open');
 window.closeModal = closeModal;
 
 window.openSubmitModal = function(questId, proofRequired = false) {
-  if (isMaintenanceTime()) { showToast('Sistema em manutenção (01:30–02:00). Tente em breve!', 'warning'); return; }
+  if (isMaintenanceTime()) { showToast('⚠️ Sistema em manutenção (01:45–02:05). Tente em breve!', 'warning'); return; }
 
-  // Se proof_required=false, registrar conclusão diretamente (sem modal de link)
   if (!proofRequired) {
     submitQuestDirect(questId);
     return;
@@ -862,14 +946,24 @@ window.openSubmitModal = function(questId, proofRequired = false) {
 };
 
 async function submitQuestDirect(questId) {
-  // Para quests sem comprovante (proof_required=false)
+  // Find the button that triggered this to get position for float effect
+  const triggerBtn = document.querySelector(`button[onclick*="${questId}"]`);
+  showLoading('Registrando conclusão…');
   try {
     await createSubmission(currentUser.id, questId, null);
-    showToast('Quest registrada! Aguarde aprovação do admin.', 'success');
+    // Find quest to get rewards
+    const q = allQuests.find(x => x.id === questId);
+    if (q) floatRewardFromEl(triggerBtn, q.reward_coins, q.reward_tokens, q.reward_xp);
+    // Bump stats
+    bumpStatCard('statCoins');
+    if (q?.reward_tokens) bumpStatCard('statTokens');
+    showToast('⚔️ Quest registrada! Aguarde aprovação do admin.', 'success');
     await loadQuests();
     await loadMyQuests();
   } catch (err) {
     showToast(err.message || 'Erro ao registrar', 'error');
+  } finally {
+    hideLoading();
   }
 }
 
@@ -882,15 +976,40 @@ window.openUserMapSubmitModal = function() {
   openModal('submitMapModal');
 };
 
-window.likeMapBtn = async function(mapId) {
+// ── Like Map (toggle: curtir/descurtir) ───────────────────────
+window.likeMapBtn = async function(mapId, btn) {
+  if (!currentUser) return;
+  // Animate immediately (optimistic)
+  const wasLiked = btn.classList.contains('liked');
+  btn.classList.toggle('liked', !wasLiked);
+  btn.classList.add('like-pop');
+  setTimeout(() => btn.classList.remove('like-pop'), 400);
+
   try {
-    await likeMap(mapId, currentUser.id);
-    showToast('Curtida registrada!', 'success');
-    // Update local state so the button reflects updated count without full reload
+    const isNowLiked = await likeMap(mapId, currentUser.id);
     const m = allMaps.find(x => x.id === mapId);
-    if (m) m.likes_count = (m.likes_count || 0) + 1;
-    await loadMaps();
+    if (m) {
+      m.likes_count = Math.max(0, (m.likes_count || 0) + (isNowLiked ? 1 : -1));
+    }
+    // Update count text in button
+    const icon = btn.querySelector('i');
+    const count = m?.likes_count ?? 0;
+    if (btn.id === 'mapDetailLikeBtn') {
+      btn.innerHTML = `<i class="fas fa-heart"></i> ${isNowLiked ? 'Descurtir' : 'Curtir'} (${count})`;
+    } else {
+      btn.innerHTML = `<i class="fas fa-heart"></i> ${count}`;
+    }
+    btn.classList.toggle('liked', isNowLiked);
+    if (isNowLiked) {
+      const rect = btn.getBoundingClientRect();
+      floatReward(rect.left + rect.width / 2, rect.top + window.scrollY - 10, '❤️ +1', 'coins');
+      showToast('❤️ Curtida registrada!', 'success');
+    } else {
+      showToast('💔 Curtida removida.', 'info');
+    }
   } catch (err) {
+    // Revert optimistic update on error
+    btn.classList.toggle('liked', wasLiked);
     showToast(err.message, 'error');
   }
 };
@@ -908,10 +1027,13 @@ async function submitQuest() {
 
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enviando…';
+  showLoading('Enviando comprovante…');
   try {
     await createSubmission(currentUser.id, questId, proofUrl);
     closeModal('submitQuestModal');
-    showToast('Comprovante enviado! Aguarde a aprovação do admin.', 'success');
+    const q = allQuests.find(x => x.id === questId);
+    if (q) floatRewardFromEl(btn, q.reward_coins, q.reward_tokens, q.reward_xp);
+    showToast('📋 Comprovante enviado! Aguarde a aprovação do admin.', 'success');
     await loadQuests();
     await loadMyQuests();
   } catch (err) {
@@ -919,6 +1041,7 @@ async function submitQuest() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar';
+    hideLoading();
   }
 }
 
@@ -929,6 +1052,7 @@ async function submitMap() {
 
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enviando…';
+  showLoading('Enviando mapa para análise…');
   try {
     await submitMapByUser(currentUser.id, {
       title,
@@ -938,11 +1062,12 @@ async function submitMap() {
       image_url:    document.getElementById('mapSubmitImageUrl')?.value?.trim() || null,
     });
     closeModal('submitMapModal');
-    showToast('Mapa enviado para análise! O admin irá revisar em breve.', 'success');
+    showToast('🗺️ Mapa enviado para análise! O admin irá revisar em breve.', 'success');
   } catch (err) {
     showToast(err.message || 'Erro ao enviar mapa', 'error');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar para Análise';
+    hideLoading();
   }
 }
