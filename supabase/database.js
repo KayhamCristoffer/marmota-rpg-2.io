@@ -1,9 +1,11 @@
 // ================================================================
-// SUPABASE DATABASE v6 — Toca das Marmotas
-// Changelog v6:
-//  - likeMap: 1 like por usuário via localStorage
-//  - incrementMapView: incrementa views ao abrir detalhe
-//  - getRankingHistory: query melhorada, coluna explícita, error log
+// SUPABASE DATABASE v9 — Toca das Marmotas
+// Changelog v9:
+//  - getPeriodRange: corrigido bug de timezone BRT (usava setHours em UTC)
+//    Agora extrai ano/mês/dia diretamente do ISO string em BRT (-03:00)
+//    evitando o problema de "dia anterior" nos rankings diário/semanal/mensal
+//  - getRankingPeriodLabel: formato data[HH:MM] até data[HH:MM] (BRT)
+//  - brtPeriodLabel: atualizado para usar o mesmo fix
 // ================================================================
 import { sb } from './client.js';
 import { ADMIN_UID } from './supabase-config.js';
@@ -420,15 +422,25 @@ export async function deleteMap(mapId) {
   if (error) throw error;
 }
 
+export function hasLikedMap(userId, mapId) {
+  return !!localStorage.getItem(`map_liked_${userId}_${mapId}`);
+}
+
 export async function likeMap(mapId, userId) {
-  // Prevent duplicate likes: track in localStorage
   const storageKey = `map_liked_${userId}_${mapId}`;
   if (localStorage.getItem(storageKey)) {
-    throw new Error('Você já curtiu este mapa!');
+    // UNLIKE: decrement
+    const { data: m } = await sb.from('maps').select('likes_count').eq('id', mapId).single();
+    if (m) {
+      await sb.from('maps').update({ likes_count: Math.max(0, (m.likes_count || 1) - 1) }).eq('id', mapId);
+    }
+    localStorage.removeItem(storageKey);
+    return false; // unliked
   }
   const { error } = await sb.rpc('increment_map_likes', { map_id: mapId });
   if (error) throw error;
   localStorage.setItem(storageKey, '1');
+  return true; // liked
 }
 
 export async function incrementMapView(mapId) {
@@ -441,6 +453,95 @@ export async function incrementMapView(mapId) {
 }
 
 // ─── RANKING ──────────────────────────────────────────────────
+
+// Retorna a data/hora atual em BRT como objeto {year, month, day, hour, minute, dayOfWeek}
+// Usa toLocaleString com timeZone para extrair corretamente os campos — evita
+// o bug de setHours() que operava sobre UTC internamente.
+function _brtNow() {
+  const now = new Date();
+  // Formata em pt-BR para obter partes da data em BRT
+  const fmt = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', weekday: 'short'
+  });
+  const parts = {};
+  fmt.formatToParts(now).forEach(({ type, value }) => { parts[type] = value; });
+  // parts: day='24', month='04', year='2026', hour='10', minute='35', weekday='qui.'
+  return {
+    year:      parseInt(parts.year,  10),
+    month:     parseInt(parts.month, 10), // 1-12
+    day:       parseInt(parts.day,   10),
+    hour:      parseInt(parts.hour,  10),
+    minute:    parseInt(parts.minute,10),
+    // dayOfWeek: 0=dom,1=seg,...6=sab — via getDay() em UTC ajustado
+    dayOfWeek: new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).getDay()
+  };
+}
+
+// Constrói um Date UTC a partir de ano/mês/dia BRT + hora/min/seg
+function _brtToUtc(year, month, day, hour = 0, min = 0, sec = 0) {
+  // Monta string ISO com offset -03:00 e converte para Date UTC
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  return new Date(`${pad(year,4)}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(min)}:${pad(sec)}-03:00`);
+}
+
+// Retorna {start, end} do período atual em BRT (UTC-3)
+function getPeriodRange(type) {
+  const b = _brtNow();
+
+  if (type === 'daily') {
+    const start = _brtToUtc(b.year, b.month, b.day,  0,  0,  0);
+    const end   = _brtToUtc(b.year, b.month, b.day, 23, 59, 59);
+    return { start, end };
+  }
+
+  if (type === 'weekly') {
+    // Segunda (1) → Domingo (0): diff para chegar na segunda
+    const dow = b.dayOfWeek; // 0=dom
+    const diffToMon = dow === 0 ? -6 : 1 - dow;
+    // Calcula data da segunda em BRT
+    const monDate = new Date(_brtToUtc(b.year, b.month, b.day));
+    monDate.setUTCDate(monDate.getUTCDate() + diffToMon);
+    // Recalcula ano/mês/dia da segunda em BRT
+    const monBrt = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(monDate);
+    const mp = {}; monBrt.forEach(({ type: t, value: v }) => { mp[t] = v; });
+    const mY = parseInt(mp.year, 10), mM = parseInt(mp.month, 10), mD = parseInt(mp.day, 10);
+    const start = _brtToUtc(mY, mM, mD, 0, 0, 0);
+    // Domingo = segunda + 6 dias
+    const sunDate = new Date(start.getTime() + 6 * 86400000);
+    const sunBrt = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(sunDate);
+    const sp = {}; sunBrt.forEach(({ type: t, value: v }) => { sp[t] = v; });
+    const sY = parseInt(sp.year, 10), sM = parseInt(sp.month, 10), sD = parseInt(sp.day, 10);
+    const end = _brtToUtc(sY, sM, sD, 23, 59, 59);
+    return { start, end };
+  }
+
+  if (type === 'monthly') {
+    const start = _brtToUtc(b.year, b.month, 1,  0,  0,  0);
+    // Último dia do mês: dia 0 do próximo mês
+    const lastDay = new Date(Date.UTC(b.year, b.month, 0)).getUTCDate();
+    const end   = _brtToUtc(b.year, b.month, lastDay, 23, 59, 59);
+    return { start, end };
+  }
+
+  return null;
+}
+
+export function getRankingPeriodLabel(type) {
+  const range = getPeriodRange(type);
+  if (!range) return null;
+  // Formata datas em BRT (America/Sao_Paulo) para exibição correta
+  const fmtDate = (d) => d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric' });
+  const fmtTime = (d) => d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour:'2-digit', minute:'2-digit' });
+  return `${fmtDate(range.start)} [${fmtTime(range.start)}] até ${fmtDate(range.end)} [${fmtTime(range.end)}]`;
+}
 
 export async function getRanking(type = 'total', metric = 'coins') {
   const prefix = metric === 'tokens' ? 'tokens' : 'coins';
@@ -459,10 +560,12 @@ export async function getRanking(type = 'total', metric = 'coins') {
     .order(field, { ascending: false })
     .limit(50);
   if (error) throw error;
+  const periodLabel = type !== 'total' ? getRankingPeriodLabel(type) : null;
   return (data ?? []).map(u => ({
     ...u,
     displayName: u.profile_nickname || u.nickname,
-    score: u[field] || 0
+    score: u[field] || 0,
+    periodLabel
   }));
 }
 
@@ -542,12 +645,25 @@ export async function checkAndGrantAchievements(userId) {
 
 // ─── RANKING RESETS ───────────────────────────────────────────
 
+// Gera label de período para o histórico, no formato:
+// "DD/MM/AAAA [HH:MM] até DD/MM/AAAA [HH:MM] BRT"
+function brtPeriodLabel(type) {
+  const range = getPeriodRange(type);
+  if (!range) {
+    const fallback = new Date();
+    return fallback.toLocaleDateString('pt-BR', { timeZone:'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric' }) + ' BRT';
+  }
+  const fmtDate = (d) => d.toLocaleDateString('pt-BR',  { timeZone:'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric' });
+  const fmtTime = (d) => d.toLocaleTimeString('pt-BR',  { timeZone:'America/Sao_Paulo', hour:'2-digit', minute:'2-digit' });
+  return `${fmtDate(range.start)} [${fmtTime(range.start)}] até ${fmtDate(range.end)} [${fmtTime(range.end)}] BRT`;
+}
+
 export async function resetDailyRanking() {
   const { data: users } = await sb.from('users').select('id,coins_daily,tokens_daily').gt('coins_daily', 0);
   if (users?.length) {
-    const today = new Date().toISOString().split('T')[0];
+    const label = brtPeriodLabel('daily');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'daily', score_coins: u.coins_daily, score_tokens: u.tokens_daily || 0, period_label: today }))
+      users.map(u => ({ user_id: u.id, score_type: 'daily', score_coins: u.coins_daily, score_tokens: u.tokens_daily || 0, period_label: label }))
     );
   }
   await sb.from('users').update({ coins_daily: 0, tokens_daily: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
@@ -556,9 +672,9 @@ export async function resetDailyRanking() {
 export async function resetWeeklyRanking() {
   const { data: users } = await sb.from('users').select('id,coins_weekly,tokens_weekly').gt('coins_weekly', 0);
   if (users?.length) {
-    const week = getWeekLabel();
+    const label = brtPeriodLabel('weekly');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'weekly', score_coins: u.coins_weekly, score_tokens: u.tokens_weekly || 0, period_label: week }))
+      users.map(u => ({ user_id: u.id, score_type: 'weekly', score_coins: u.coins_weekly, score_tokens: u.tokens_weekly || 0, period_label: label }))
     );
   }
   await sb.from('users').update({ coins_weekly: 0, tokens_weekly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
@@ -567,9 +683,9 @@ export async function resetWeeklyRanking() {
 export async function resetMonthlyRanking() {
   const { data: users } = await sb.from('users').select('id,coins_monthly,tokens_monthly').gt('coins_monthly', 0);
   if (users?.length) {
-    const month = new Date().toISOString().substring(0, 7);
+    const label = brtPeriodLabel('monthly');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'monthly', score_coins: u.coins_monthly, score_tokens: u.tokens_monthly || 0, period_label: month }))
+      users.map(u => ({ user_id: u.id, score_type: 'monthly', score_coins: u.coins_monthly, score_tokens: u.tokens_monthly || 0, period_label: label }))
     );
   }
   await sb.from('users').update({ coins_monthly: 0, tokens_monthly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
