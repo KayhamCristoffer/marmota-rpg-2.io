@@ -127,6 +127,12 @@
   <!-- Loader -->
   <div id="pageLoader"><div class="loader-shield"><i class="fas fa-shield-halved"></i></div><p>Carregando…</p></div>
 
+  <!-- Action Overlay -->
+  <div id="actionOverlay">
+    <div class="action-overlay-spinner"></div>
+    <div class="action-overlay-text" id="actionOverlayText">Processando…</div>
+  </div>
+
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
@@ -272,6 +278,7 @@
         <button class="filter-btn active" data-metric="coins"><i class="fas fa-coins"></i> Moedas</button>
         <button class="filter-btn" data-metric="tokens"><i class="fas fa-gem"></i> Tokens</button>
       </div>
+      <div id="rankingPeriodInfo" class="ranking-period-info" style="display:none"></div>
       <div class="ranking-podium" id="rankingPodium"></div>
       <div class="ranking-list" id="rankingList">
         <div class="empty-state"><i class="fas fa-trophy"></i><h3>Carregando ranking…</h3></div>
