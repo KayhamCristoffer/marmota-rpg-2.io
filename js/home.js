@@ -1,12 +1,14 @@
 // ============================================================
-// HOME.JS v8 — Toca das Marmotas - Dashboard com Supabase
-// Changelog v8:
+// HOME.JS v9 — Toca das Marmotas - Dashboard com Supabase
+// Changelog v9:
 //  - Ranking diário/semanal/mensal: período BRT corrigido (sem dia anterior)
 //    exibe data[HH:MM] até data[HH:MM] com timezone America/Sao_Paulo
 //  - Loading overlay global em TODAS as ações assíncronas
 //  - Animação de nível de experiência (XP bar smooth + level-up pulse)
 //  - Efeito de receber moedas/tokens após completar quest (float animado)
 //  - Like/Unlike com animação de coração pop + remoção ao clicar novamente
+//  - checkAndAutoReset: verifica e executa reset automático de rankings
+//    na janela de manutenção (01:45–02:10 BRT) quando pg_cron não está ativo
 //  - Melhorias gerais de UX: page transitions, hover lifts, skeleton loaders
 //  - Contador de level com badge animado na sidebar
 //  - Feedback visual em todas as ações do usuário
@@ -21,7 +23,7 @@ import {
   formatCooldown, getRankingPeriodLabel,
   getShopItems, buyShopItem, getUserPurchases,
   getShopFavorites, addShopFavorite, removeShopFavorite,
-  incrementMapView
+  incrementMapView, checkAndAutoReset
 } from '../supabase/database.js';
 
 // ── Estado ───────────────────────────────────────────────────
@@ -130,7 +132,28 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadDashboard();
 
   setTimeout(() => document.getElementById('pageLoader')?.classList.add('hide'), 600);
+
+  // ── Auto-reset de rankings (fallback client-side para quando pg_cron não está ativo)
+  // Só executa na janela de manutenção 01:45–02:10 BRT para evitar resets acidentais
+  _tryAutoReset();
 });
+
+async function _tryAutoReset() {
+  try {
+    const resetDone = await checkAndAutoReset();
+    if (resetDone.length > 0) {
+      const typeLabels = { daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal' };
+      const names = resetDone.map(t => typeLabels[t] || t).join(', ');
+      console.info(`[Auto-Reset] Rankings resetados automaticamente: ${names}`);
+      // Notifica apenas admins
+      if (isAdmin(currentUser, currentProfile)) {
+        showToast(`🔄 Auto-reset executado: ${names}`, 'info');
+      }
+    }
+  } catch (e) {
+    console.warn('[Auto-Reset] Erro:', e.message);
+  }
+}
 
 // ── Sidebar ───────────────────────────────────────────────────
 function setupSidebar() {

@@ -1,11 +1,15 @@
 // ================================================================
-// SUPABASE DATABASE v9 — Toca das Marmotas
-// Changelog v9:
-//  - getPeriodRange: corrigido bug de timezone BRT (usava setHours em UTC)
-//    Agora extrai ano/mês/dia diretamente do ISO string em BRT (-03:00)
-//    evitando o problema de "dia anterior" nos rankings diário/semanal/mensal
-//  - getRankingPeriodLabel: formato data[HH:MM] até data[HH:MM] (BRT)
-//  - brtPeriodLabel: atualizado para usar o mesmo fix
+// SUPABASE DATABASE v10 — Toca das Marmotas
+// Changelog v10:
+//  - Auto-reset de rankings: checkAndAutoReset() verifica se o reset
+//    diário/semanal/mensal já foi feito no período atual e executa
+//    automaticamente se necessário (usado como fallback ao pg_cron)
+//  - getRankingResetStatus(): retorna último reset de cada tipo via
+//    tabela ranking_reset_log (criada pela migração v10_auto_ranking_reset.sql)
+//  - getNextResetTimes(): calcula horários do próximo reset de cada tipo em BRT
+//  - resetDailyRanking / resetWeeklyRanking / resetMonthlyRanking: agora também
+//    inserem registro em ranking_reset_log para rastreamento
+//  - getRankingHistory: agora suporta limitPeriods=0 para retornar todos os períodos
 // ================================================================
 import { sb } from './client.js';
 import { ADMIN_UID } from './supabase-config.js';
@@ -658,37 +662,178 @@ function brtPeriodLabel(type) {
   return `${fmtDate(range.start)} [${fmtTime(range.start)}] até ${fmtDate(range.end)} [${fmtTime(range.end)}] BRT`;
 }
 
+// Insere registro no ranking_reset_log (tabela criada pela migração v10)
+async function _logReset(type, label) {
+  try {
+    await sb.from('ranking_reset_log').insert({ reset_type: type, period_label: label });
+  } catch (e) {
+    // Tabela pode não existir ainda (antes de aplicar migração v10) — ignora silenciosamente
+    console.warn('ranking_reset_log insert skipped (run migration v10):', e.message);
+  }
+}
+
 export async function resetDailyRanking() {
-  const { data: users } = await sb.from('users').select('id,coins_daily,tokens_daily').gt('coins_daily', 0);
+  const { data: users } = await sb.from('users').select('id,coins_daily,tokens_daily')
+    .or('coins_daily.gt.0,tokens_daily.gt.0');
+  const label = brtPeriodLabel('daily');
   if (users?.length) {
-    const label = brtPeriodLabel('daily');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'daily', score_coins: u.coins_daily, score_tokens: u.tokens_daily || 0, period_label: label }))
+      users.map(u => ({ user_id: u.id, score_type: 'daily', score_coins: u.coins_daily || 0, score_tokens: u.tokens_daily || 0, period_label: label }))
     );
   }
-  await sb.from('users').update({ coins_daily: 0, tokens_daily: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('users').update({ coins_daily: 0, tokens_daily: 0 })
+    .or('coins_daily.gt.0,tokens_daily.gt.0');
+  await _logReset('daily', label);
 }
 
 export async function resetWeeklyRanking() {
-  const { data: users } = await sb.from('users').select('id,coins_weekly,tokens_weekly').gt('coins_weekly', 0);
+  const { data: users } = await sb.from('users').select('id,coins_weekly,tokens_weekly')
+    .or('coins_weekly.gt.0,tokens_weekly.gt.0');
+  const label = brtPeriodLabel('weekly');
   if (users?.length) {
-    const label = brtPeriodLabel('weekly');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'weekly', score_coins: u.coins_weekly, score_tokens: u.tokens_weekly || 0, period_label: label }))
+      users.map(u => ({ user_id: u.id, score_type: 'weekly', score_coins: u.coins_weekly || 0, score_tokens: u.tokens_weekly || 0, period_label: label }))
     );
   }
-  await sb.from('users').update({ coins_weekly: 0, tokens_weekly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('users').update({ coins_weekly: 0, tokens_weekly: 0 })
+    .or('coins_weekly.gt.0,tokens_weekly.gt.0');
+  await _logReset('weekly', label);
 }
 
 export async function resetMonthlyRanking() {
-  const { data: users } = await sb.from('users').select('id,coins_monthly,tokens_monthly').gt('coins_monthly', 0);
+  const { data: users } = await sb.from('users').select('id,coins_monthly,tokens_monthly')
+    .or('coins_monthly.gt.0,tokens_monthly.gt.0');
+  const label = brtPeriodLabel('monthly');
   if (users?.length) {
-    const label = brtPeriodLabel('monthly');
     await sb.from('ranking_history').insert(
-      users.map(u => ({ user_id: u.id, score_type: 'monthly', score_coins: u.coins_monthly, score_tokens: u.tokens_monthly || 0, period_label: label }))
+      users.map(u => ({ user_id: u.id, score_type: 'monthly', score_coins: u.coins_monthly || 0, score_tokens: u.tokens_monthly || 0, period_label: label }))
     );
   }
-  await sb.from('users').update({ coins_monthly: 0, tokens_monthly: 0 }).gte('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('users').update({ coins_monthly: 0, tokens_monthly: 0 })
+    .or('coins_monthly.gt.0,tokens_monthly.gt.0');
+  await _logReset('monthly', label);
+}
+
+// ─── AUTO-RESET (fallback client-side) ────────────────────────
+
+/**
+ * Retorna o status do último reset de cada tipo a partir da tabela
+ * ranking_reset_log (criada pela migração v10). Retorna null por tipo
+ * se a tabela ainda não existir.
+ */
+export async function getRankingResetStatus() {
+  try {
+    const { data, error } = await sb
+      .from('ranking_reset_log')
+      .select('reset_type, reset_at, period_label, rows_saved')
+      .order('reset_at', { ascending: false })
+      .limit(30);
+    if (error) throw error;
+
+    // Pega o registro mais recente de cada tipo
+    const status = { daily: null, weekly: null, monthly: null };
+    for (const row of (data ?? [])) {
+      if (!status[row.reset_type]) status[row.reset_type] = row;
+    }
+    return status;
+  } catch (e) {
+    // Tabela não existe ainda — retorna estrutura vazia
+    console.warn('getRankingResetStatus: tabela ranking_reset_log não encontrada. Execute a migração v10.');
+    return { daily: null, weekly: null, monthly: null };
+  }
+}
+
+/**
+ * Calcula o próximo horário de reset de cada tipo em BRT.
+ * Retorna { daily, weekly, monthly } com objetos Date (UTC).
+ */
+export function getNextResetTimes() {
+  const b    = _brtNow();
+  const now  = new Date();
+
+  // Próximo reset diário: 01:45 BRT do dia seguinte (ou hoje se ainda não passou)
+  const todayReset = _brtToUtc(b.year, b.month, b.day, 1, 45, 0);
+  const dailyNext  = todayReset > now ? todayReset
+    : _brtToUtc(b.year, b.month, b.day + 1, 1, 45, 0);
+
+  // Próximo reset semanal: segunda-feira 01:50 BRT da próxima semana (ou desta semana)
+  const dow      = b.dayOfWeek; // 0=dom
+  const daysToMon = dow === 1 ? 0 : dow === 0 ? 1 : (8 - dow);
+  const thisMonReset = (() => {
+    const d = _brtToUtc(b.year, b.month, b.day, 1, 50, 0);
+    d.setUTCDate(d.getUTCDate() + (dow === 1 ? 0 : daysToMon));
+    return d;
+  })();
+  const weeklyNext = thisMonReset > now ? thisMonReset
+    : new Date(thisMonReset.getTime() + 7 * 86400000);
+
+  // Próximo reset mensal: dia 1 do próximo mês 01:55 BRT
+  const thisMonthReset = _brtToUtc(b.year, b.month, 1, 1, 55, 0);
+  let monthlyNext;
+  if (thisMonthReset > now) {
+    monthlyNext = thisMonthReset;
+  } else {
+    // Próximo mês (pode virar ano)
+    const nm = b.month === 12 ? 1 : b.month + 1;
+    const ny = b.month === 12 ? b.year + 1 : b.year;
+    monthlyNext = _brtToUtc(ny, nm, 1, 1, 55, 0);
+  }
+
+  return { daily: dailyNext, weekly: weeklyNext, monthly: monthlyNext };
+}
+
+/**
+ * checkAndAutoReset — verifica se o reset do período atual já foi feito.
+ * Usado como fallback quando o pg_cron não está configurado.
+ * Só executa se o horário atual for >= 01:45 BRT e o último reset foi
+ * em um período anterior ao atual.
+ * Retorna array de tipos resetados (ex: ['daily', 'weekly']).
+ */
+export async function checkAndAutoReset() {
+  const resetDone = [];
+  try {
+    const b   = _brtNow();
+    const now = new Date();
+
+    // Só age na janela de manutenção (01:45 – 02:10 BRT)
+    const inWindow = (b.hour === 1 && b.minute >= 45) || (b.hour === 2 && b.minute < 10);
+    if (!inWindow) return resetDone;
+
+    const status = await getRankingResetStatus();
+
+    // ── Reset diário ──────────────────────────────────────────
+    const dailyStart = _brtToUtc(b.year, b.month, b.day, 0, 0, 0);
+    const lastDaily  = status.daily ? new Date(status.daily.reset_at) : null;
+    if (!lastDaily || lastDaily < dailyStart) {
+      await resetDailyRanking();
+      resetDone.push('daily');
+    }
+
+    // ── Reset semanal (segunda-feira) ─────────────────────────
+    const dow       = b.dayOfWeek;
+    const isMonday  = dow === 1;
+    if (isMonday) {
+      const weekStart = _brtToUtc(b.year, b.month, b.day, 0, 0, 0);
+      const lastWeekly = status.weekly ? new Date(status.weekly.reset_at) : null;
+      if (!lastWeekly || lastWeekly < weekStart) {
+        await resetWeeklyRanking();
+        resetDone.push('weekly');
+      }
+    }
+
+    // ── Reset mensal (dia 1 de cada mês) ─────────────────────
+    if (b.day === 1) {
+      const monthStart  = _brtToUtc(b.year, b.month, 1, 0, 0, 0);
+      const lastMonthly = status.monthly ? new Date(status.monthly.reset_at) : null;
+      if (!lastMonthly || lastMonthly < monthStart) {
+        await resetMonthlyRanking();
+        resetDone.push('monthly');
+      }
+    }
+  } catch (e) {
+    console.warn('checkAndAutoReset error:', e.message);
+  }
+  return resetDone;
 }
 
 // ─── UTILS ────────────────────────────────────────────────────
@@ -870,16 +1015,24 @@ export async function removeShopFavorite(userId, itemId) {
 
 // ─── RANKING HISTORY ──────────────────────────────────────────
 
+/**
+ * Busca histórico de rankings agrupado por período.
+ * @param {string} scoreType  'daily' | 'weekly' | 'monthly'
+ * @param {string} metric     'coins' | 'tokens'
+ * @param {number} limitPeriods  Máx. de períodos a retornar (0 = todos)
+ * @returns {Array} Registros do ranking_history com join em users
+ */
 export async function getRankingHistory(scoreType, metric = 'coins', limitPeriods = 5) {
   const scoreField = metric === 'tokens' ? 'score_tokens' : 'score_coins';
-  // Fetch the last 200 records for this score_type, ordered by period desc then score desc
+  const fetchLimit = limitPeriods > 0 ? limitPeriods * 50 : 500;
   const { data, error } = await sb
     .from('ranking_history')
-    .select(`id, user_id, score_type, score_coins, score_tokens, period_label, recorded_at, users(nickname, profile_nickname, icon_url)`)
+    .select(`id, user_id, score_type, score_coins, score_tokens, period_label, recorded_at,
+             users(nickname, profile_nickname, icon_url)`)
     .eq('score_type', scoreType)
     .order('period_label', { ascending: false })
-    .order(scoreField, { ascending: false })
-    .limit(200);
+    .order(scoreField,     { ascending: false })
+    .limit(fetchLimit);
   if (error) {
     console.error('getRankingHistory error:', error);
     throw error;

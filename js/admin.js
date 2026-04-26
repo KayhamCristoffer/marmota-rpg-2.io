@@ -1,8 +1,12 @@
 // ============================================================
-// ADMIN.JS v6 — Toca das Marmotas - Painel Administrativo
-// Changelog v6:
-//  - Rankings History: melhor fetch, agrupamento e exibição de erros
-//  - loadRankingHistory: spinner + mensagem de erro mais clara
+// ADMIN.JS v7 — Toca das Marmotas - Painel Administrativo
+// Changelog v7:
+//  - Rankings History: exibe status do último reset automático (pg_cron)
+//  - getRankingResetStatus: mostra quando cada tipo foi resetado pela última vez
+//  - getNextResetTimes: exibe o próximo horário de reset previsto para cada tipo
+//  - Botões de reset manual agora também atualizam o painel de status
+//  - renderRankingHistory: melhor layout de períodos, exibe "sem dados" separado
+//    de "nenhum histórico disponível" para maior clareza
 // ============================================================
 import { requireAuth, showToast, renderUserInSidebar } from '../supabase/session-manager.js';
 import {
@@ -13,7 +17,7 @@ import {
   getAllUsers, setUserRole,
   getPendingMapSubmissions, approveMapSubmission, rejectMapSubmission,
   resetDailyRanking, resetWeeklyRanking, resetMonthlyRanking,
-  getRankingHistory,
+  getRankingHistory, getRankingResetStatus, getNextResetTimes,
   getAllShopItems, createShopItem, updateShopItem, deleteShopItem, getAllPurchases
 } from '../supabase/database.js';
 
@@ -720,22 +724,68 @@ async function loadRankingHistory() {
   const histList = document.getElementById('rankingHistoryList');
   if (!histList) return;
   histList.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando histórico…</h3></div>';
-  try {
-    const history = await getRankingHistory(currentRankingHistoryType, currentRankingHistoryMetric);
-    renderRankingHistory(history);
-  } catch (err) {
-    histList.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro ao carregar histórico</h3><p style="font-size:.8rem;color:var(--text-muted)">${err.message}</p></div>`;
-  }
+
+  // Carrega status dos auto-resets em paralelo
+  const [history, resetStatus] = await Promise.all([
+    getRankingHistory(currentRankingHistoryType, currentRankingHistoryMetric).catch(e => { console.error(e); return []; }),
+    getRankingResetStatus().catch(() => ({ daily: null, weekly: null, monthly: null }))
+  ]);
+
+  renderAutoResetStatus(resetStatus);
+  renderRankingHistory(history);
+}
+
+function renderAutoResetStatus(status) {
+  const el = document.getElementById('autoResetStatusPanel');
+  if (!el) return;
+
+  const nextTimes = getNextResetTimes();
+  const fmtBrt = (d) => {
+    if (!d) return '—';
+    return new Date(d).toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit',
+      year: '2-digit', hour: '2-digit', minute: '2-digit'
+    });
+  };
+
+  const types = [
+    { key: 'daily',   label: 'Diário',   icon: 'fa-sun',           next: nextTimes.daily },
+    { key: 'weekly',  label: 'Semanal',  icon: 'fa-calendar-week', next: nextTimes.weekly },
+    { key: 'monthly', label: 'Mensal',   icon: 'fa-calendar-alt',  next: nextTimes.monthly }
+  ];
+
+  el.innerHTML = types.map(t => {
+    const last = status[t.key];
+    const lastText = last
+      ? `<span style="color:var(--green,#22c55e)">✓ ${fmtBrt(last.reset_at)} BRT</span> <small style="color:var(--text-muted)">(${last.rows_saved ?? '?'} registros)</small>`
+      : `<span style="color:var(--text-muted)">Nunca (execute migração v10 no Supabase)</span>`;
+    const nextText = `<span style="color:var(--gold)">${fmtBrt(t.next)}</span>`;
+    return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:.82rem">
+      <i class="fas ${t.icon}" style="color:var(--gold);width:16px"></i>
+      <strong style="color:var(--text-primary);min-width:60px">${t.label}</strong>
+      <span style="color:var(--text-muted);margin-right:4px">Último:</span>${lastText}
+      <span style="color:var(--text-muted);margin-left:8px">Próximo:</span>${nextText}
+    </div>`;
+  }).join('');
 }
 
 function renderRankingHistory(history) {
   const histList = document.getElementById('rankingHistoryList');
   if (!histList) return;
+
   if (!history || !history.length) {
-    histList.innerHTML = '<div class="empty-state"><i class="fas fa-history"></i><h3>Nenhum histórico disponível</h3><p style="font-size:.82rem;color:var(--text-muted)">Execute um reset de ranking para salvar dados históricos.</p></div>';
+    histList.innerHTML = `<div class="empty-state">
+      <i class="fas fa-history" style="font-size:2rem;opacity:.3;margin-bottom:8px"></i>
+      <h3>Nenhum histórico para este período</h3>
+      <p style="font-size:.82rem;color:var(--text-muted);max-width:340px;text-align:center">
+        O histórico é salvo automaticamente pelo pg_cron (01:45–01:55 BRT)<br>
+        ou clique em <strong>Reset Manual</strong> abaixo para salvar agora.
+      </p>
+    </div>`;
     return;
   }
-  // Agrupar por period_label
+
+  // Agrupa por period_label
   const byPeriod = {};
   for (const row of history) {
     const lbl = row.period_label || 'sem período';
@@ -744,25 +794,29 @@ function renderRankingHistory(history) {
   }
   const metricLabel = currentRankingHistoryMetric === 'tokens' ? 'Tokens' : 'Moedas';
   const scoreField  = currentRankingHistoryMetric === 'tokens' ? 'score_tokens' : 'score_coins';
+  const medalIcon   = currentRankingHistoryMetric === 'tokens' ? '💎' : '🪙';
 
-  const periods = Object.keys(byPeriod).sort((a, b) => b.localeCompare(a)).slice(0, 5);
+  // Ordena períodos do mais recente ao mais antigo
+  const periods = Object.keys(byPeriod).sort((a, b) => b.localeCompare(a));
 
   let html = '';
   for (const period of periods) {
     const rows = byPeriod[period].sort((a, b) => (b[scoreField] || 0) - (a[scoreField] || 0));
-    html += `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px;margin-bottom:12px">
-      <div style="font-family:var(--font-title);color:var(--gold);margin-bottom:10px;font-size:.9rem">📅 ${period}</div>
-      <div style="display:flex;flex-direction:column;gap:6px">
+    const medals = ['🥇','🥈','🥉'];
+    html += `<div class="rh-period-block">
+      <div class="rh-period-title">📅 ${period}</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
       ${rows.slice(0, 10).map((row, idx) => {
-        const name  = row.users?.profile_nickname || row.users?.nickname || '(usuário deletado)';
-        const score = ((row[scoreField]) || 0).toLocaleString('pt-BR');
-        const medals = ['🥇','🥈','🥉'];
-        return `<div style="display:flex;align-items:center;gap:10px;font-size:.82rem;color:var(--text-secondary)">
-          <span style="width:24px;text-align:center;flex-shrink:0">${medals[idx] || (idx + 1)}</span>
-          <span style="flex:1;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
-          <span style="color:var(--gold);white-space:nowrap">${score} ${metricLabel.toLowerCase()}</span>
+        const name  = row.users?.profile_nickname || row.users?.nickname || '(usuário removido)';
+        const score = (row[scoreField] || 0).toLocaleString('pt-BR');
+        const medal = medals[idx] || `#${idx + 1}`;
+        return `<div class="rh-row">
+          <span class="rh-medal">${medal}</span>
+          <span class="rh-name">${name}</span>
+          <span class="rh-score">${medalIcon} ${score}</span>
         </div>`;
       }).join('')}
+      ${rows.length > 10 ? `<div style="font-size:.75rem;color:var(--text-muted);text-align:center;padding-top:4px">+${rows.length - 10} outros jogadores</div>` : ''}
       </div>
     </div>`;
   }
@@ -789,19 +843,39 @@ function setupResetButtons() {
   });
 
   document.getElementById('resetDailyBtn')?.addEventListener('click', async () => {
-    if (!confirm('⚠️ Resetar ranking DIÁRIO? O histórico será salvo antes.')) return;
-    try { await resetDailyRanking(); showToast('Ranking diário resetado!', 'success'); await loadRankingHistory(); }
-    catch (err) { showToast(err.message, 'error'); }
+    if (!confirm('⚠️ Resetar ranking DIÁRIO agora?\nO histórico será salvo antes de zerar os pontos.')) return;
+    const btn = document.getElementById('resetDailyBtn');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
+    try {
+      await resetDailyRanking();
+      showToast('✅ Ranking diário resetado e histórico salvo!', 'success');
+      await loadRankingHistory();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sun"></i> Reset Ranking Diário'; }
   });
+
   document.getElementById('resetWeeklyBtn')?.addEventListener('click', async () => {
-    if (!confirm('⚠️ Resetar ranking SEMANAL?')) return;
-    try { await resetWeeklyRanking(); showToast('Ranking semanal resetado!', 'success'); await loadRankingHistory(); }
-    catch (err) { showToast(err.message, 'error'); }
+    if (!confirm('⚠️ Resetar ranking SEMANAL?\nO histórico será salvo antes de zerar os pontos.')) return;
+    const btn = document.getElementById('resetWeeklyBtn');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
+    try {
+      await resetWeeklyRanking();
+      showToast('✅ Ranking semanal resetado e histórico salvo!', 'success');
+      await loadRankingHistory();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-calendar-week"></i> Reset Ranking Semanal'; }
   });
+
   document.getElementById('resetMonthlyBtn')?.addEventListener('click', async () => {
-    if (!confirm('⚠️ Resetar ranking MENSAL?')) return;
-    try { await resetMonthlyRanking(); showToast('Ranking mensal resetado!', 'success'); await loadRankingHistory(); }
-    catch (err) { showToast(err.message, 'error'); }
+    if (!confirm('⚠️ Resetar ranking MENSAL?\nO histórico será salvo antes de zerar os pontos.')) return;
+    const btn = document.getElementById('resetMonthlyBtn');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
+    try {
+      await resetMonthlyRanking();
+      showToast('✅ Ranking mensal resetado e histórico salvo!', 'success');
+      await loadRankingHistory();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-calendar-alt"></i> Reset Ranking Mensal'; }
   });
 }
 

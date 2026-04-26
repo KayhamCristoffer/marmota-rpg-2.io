@@ -22,6 +22,35 @@
       border:1px solid var(--border); cursor:pointer; flex-shrink:0;
     }
     .rh-period-selector { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+    /* Auto-reset status panel */
+    #autoResetStatusPanel { border-top:1px solid var(--border); padding-top:10px; margin-top:4px; }
+    .rh-period-block {
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:var(--radius-md); padding:14px 16px; margin-bottom:10px;
+    }
+    .rh-period-title {
+      font-family:var(--font-title); color:var(--gold); font-size:.88rem;
+      margin-bottom:10px; display:flex; align-items:center; gap:6px;
+    }
+    .rh-row {
+      display:flex; align-items:center; gap:10px;
+      font-size:.82rem; color:var(--text-secondary);
+      padding:3px 0;
+    }
+    .rh-medal { width:26px; text-align:center; flex-shrink:0; font-size:.95rem; }
+    .rh-name  { flex:1; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .rh-score { color:var(--gold); white-space:nowrap; font-weight:600; }
+    .auto-reset-info-box {
+      background:rgba(240,192,64,.06); border:1px solid rgba(240,192,64,.2);
+      border-radius:var(--radius-md); padding:14px 16px; margin-bottom:14px;
+    }
+    .auto-reset-info-title {
+      font-family:var(--font-title); color:var(--gold); font-size:.85rem;
+      margin-bottom:8px; display:flex; align-items:center; gap:6px;
+    }
+    .status-ok   { color:#22c55e; }
+    .status-warn { color:#f59e0b; }
+    .status-none { color:var(--text-muted); }
   </style>
 </head>
 <body class="dashboard-page">
@@ -133,9 +162,29 @@
       <div class="admin-panel" id="panel-rankings">
         <div class="page-header"><h2 class="page-title"><i class="fas fa-trophy"></i> Rankings</h2></div>
 
+        <!-- Status do Auto-Reset (pg_cron) -->
+        <div class="auto-reset-info-box">
+          <div class="auto-reset-info-title">
+            <i class="fas fa-robot"></i> Auto-Reset Automático (pg_cron)
+            <span style="font-size:.75rem;font-weight:400;color:var(--text-muted);margin-left:8px">
+              Diário 01:45 · Semanal 01:50 (seg.) · Mensal 01:55 (dia 1) — Horário de Brasília
+            </span>
+          </div>
+          <div id="autoResetStatusPanel">
+            <div style="color:var(--text-muted);font-size:.82rem"><i class="fas fa-spinner fa-spin"></i> Carregando status…</div>
+          </div>
+          <div style="margin-top:10px;font-size:.76rem;color:var(--text-muted);line-height:1.5">
+            💡 <strong>Para habilitar auto-reset:</strong> execute a migração
+            <code style="background:var(--bg-input);padding:2px 6px;border-radius:4px;font-size:.75rem">supabase/migrations/v10_auto_ranking_reset.sql</code>
+            no Supabase SQL Editor.
+          </div>
+        </div>
+
         <!-- Visualizador de Histórico -->
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;margin-bottom:20px">
-          <h3 style="font-family:var(--font-title);color:var(--gold);margin-bottom:14px;font-size:.95rem"><i class="fas fa-history"></i> Histórico de Rankings</h3>
+          <h3 style="font-family:var(--font-title);color:var(--gold);margin-bottom:14px;font-size:.95rem">
+            <i class="fas fa-history"></i> Histórico de Rankings
+          </h3>
           <div class="rh-period-selector">
             <button class="filter-btn active" data-rh-type="daily"><i class="fas fa-sun"></i> Diário</button>
             <button class="filter-btn" data-rh-type="weekly"><i class="fas fa-calendar-week"></i> Semanal</button>
@@ -146,16 +195,20 @@
             <button class="filter-btn" data-rh-metric="tokens"><i class="fas fa-gem"></i> Tokens</button>
           </div>
           <div id="rankingHistoryList">
-            <div class="empty-state"><i class="fas fa-history"></i><h3>Nenhum histórico disponível</h3></div>
+            <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
           </div>
         </div>
 
-        <!-- Reset buttons -->
+        <!-- Reset manual -->
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:24px;max-width:600px">
-          <p style="color:var(--text-secondary);font-size:.85rem;margin-bottom:20px">
-            ⚠️ Os resets salvam o histórico antes de zerar. Use com cuidado! A janela de manutenção automática é 01:30–02:00.
+          <h3 style="font-family:var(--font-title);color:var(--text-primary);font-size:.9rem;margin-bottom:10px">
+            <i class="fas fa-hand-pointer"></i> Reset Manual
+          </h3>
+          <p style="color:var(--text-secondary);font-size:.82rem;margin-bottom:16px">
+            ⚠️ Os resets salvam o histórico <strong>antes</strong> de zerar os pontos.
+            O auto-reset via pg_cron já faz isso automaticamente — use o reset manual apenas se necessário.
           </p>
-          <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;flex-direction:column;gap:10px">
             <button class="btn-danger" id="resetDailyBtn"><i class="fas fa-sun"></i> Reset Ranking Diário</button>
             <button class="btn-danger" id="resetWeeklyBtn"><i class="fas fa-calendar-week"></i> Reset Ranking Semanal</button>
             <button class="btn-danger" id="resetMonthlyBtn"><i class="fas fa-calendar-alt"></i> Reset Ranking Mensal</button>
