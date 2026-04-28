@@ -1,12 +1,13 @@
 // ============================================================
-// ADMIN.JS v7 — Toca das Marmotas - Painel Administrativo
-// Changelog v7:
-//  - Rankings History: exibe status do último reset automático (pg_cron)
-//  - getRankingResetStatus: mostra quando cada tipo foi resetado pela última vez
-//  - getNextResetTimes: exibe o próximo horário de reset previsto para cada tipo
-//  - Botões de reset manual agora também atualizam o painel de status
-//  - renderRankingHistory: melhor layout de períodos, exibe "sem dados" separado
-//    de "nenhum histórico disponível" para maior clareza
+// ADMIN.JS v8 — Toca das Marmotas - Painel Administrativo
+// Changelog v8:
+//  - Analytics Dashboard: painel com métricas gerais (usuários, quests,
+//    submissões, receita, usuários ativos nos últimos 7 dias)
+//  - Hall da Fama: visualização dos campeões históricos por período/métrica
+//  - Rankings: resetDailyRankingFull/Weekly/Monthly gravam Hall da Fama
+//    antes de zerar pontos (fallback client-side da procedure SQL)
+//  - Migração v10 corrigida: sem dependência do schema cron
+//    (erro "3F000: schema cron does not exist" resolvido)
 // ============================================================
 import { requireAuth, showToast, renderUserInSidebar } from '../supabase/session-manager.js';
 import {
@@ -17,7 +18,9 @@ import {
   getAllUsers, setUserRole,
   getPendingMapSubmissions, approveMapSubmission, rejectMapSubmission,
   resetDailyRanking, resetWeeklyRanking, resetMonthlyRanking,
+  resetDailyRankingFull, resetWeeklyRankingFull, resetMonthlyRankingFull,
   getRankingHistory, getRankingResetStatus, getNextResetTimes,
+  getHallOfFame, getAdminAnalytics,
   getAllShopItems, createShopItem, updateShopItem, deleteShopItem, getAllPurchases
 } from '../supabase/database.js';
 
@@ -40,7 +43,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupSidebar(auth);
   setupTabNavigation();
   setupResetButtons();
-  await loadPanel('submissions');
+  await loadPanel('analytics');   // Abre no Analytics por padrão
+  switchTab('analytics');
 
   setTimeout(() => document.getElementById('pageLoader')?.classList.add('hide'), 600);
 });
@@ -77,6 +81,7 @@ function switchTab(tab) {
   document.getElementById(`panel-${tab}`)?.classList.add('active');
   currentTab = tab;
   const titles = {
+    analytics:        'Dashboard Analytics',
     submissions:      'Submissões',
     'map-submissions':'Mapas Enviados',
     quests:           'Quests',
@@ -84,13 +89,15 @@ function switchTab(tab) {
     achievements:     'Conquistas',
     users:            'Usuários',
     shop:             'Loja',
-    rankings:         'Rankings'
+    rankings:         'Rankings',
+    halloffame:       'Hall da Fama'
   };
   const tt = document.getElementById('topbarTitle');
   if (tt) tt.textContent = `⚙️ ${titles[tab] || tab}`;
 }
 
 async function loadPanel(tab) {
+  if (tab === 'analytics')        await loadAnalytics();
   if (tab === 'submissions')      await loadSubmissions();
   if (tab === 'map-submissions')  await loadMapSubmissions();
   if (tab === 'quests')           await loadQuests();
@@ -99,6 +106,85 @@ async function loadPanel(tab) {
   if (tab === 'users')            await loadUsers();
   if (tab === 'shop')             await loadShopItems();
   if (tab === 'rankings')         await loadRankingHistory();
+  if (tab === 'halloffame')       await loadHallOfFame();
+}
+
+// ── ANALYTICS DASHBOARD ────────────────────────────────────────
+async function loadAnalytics() {
+  const panel = document.getElementById('panel-analytics');
+  if (!panel) return;
+  panel.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando analytics…</h3></div>';
+  try {
+    const a = await getAdminAnalytics();
+    if (!a) { panel.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro ao carregar dados</h3></div>'; return; }
+    const pct = a.totalUsers > 0 ? Math.round(a.activeUsers / a.totalUsers * 100) : 0;
+    panel.innerHTML = `
+      <div class="analytics-grid">
+        <div class="analytics-card">
+          <div class="analytics-icon" style="color:#60a5fa"><i class="fas fa-users"></i></div>
+          <div class="analytics-value">${a.totalUsers.toLocaleString('pt-BR')}</div>
+          <div class="analytics-label">Usuários cadastrados</div>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-icon" style="color:#34d399"><i class="fas fa-scroll"></i></div>
+          <div class="analytics-value">${a.approvedSubs.toLocaleString('pt-BR')}</div>
+          <div class="analytics-label">Quests concluídas</div>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-icon" style="color:#f59e0b"><i class="fas fa-inbox"></i></div>
+          <div class="analytics-value">${a.pendingSubs.toLocaleString('pt-BR')}</div>
+          <div class="analytics-label">Submissões pendentes</div>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-icon" style="color:#a78bfa"><i class="fas fa-bolt"></i></div>
+          <div class="analytics-value">${a.recentSubs.toLocaleString('pt-BR')}</div>
+          <div class="analytics-label">Quests (últimos 7 dias)</div>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-icon" style="color:#fb7185"><i class="fas fa-user-check"></i></div>
+          <div class="analytics-value">${a.activeUsers.toLocaleString('pt-BR')} <small style="font-size:.6em;opacity:.7">(${pct}%)</small></div>
+          <div class="analytics-label">Usuários ativos 7d</div>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-icon" style="color:#fbbf24"><i class="fas fa-coins"></i></div>
+          <div class="analytics-value">${a.revenueCoins.toLocaleString('pt-BR')}</div>
+          <div class="analytics-label">Moedas gastas na loja (7d)</div>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-icon" style="color:#c084fc"><i class="fas fa-gem"></i></div>
+          <div class="analytics-value">${a.revenueTokens.toLocaleString('pt-BR')}</div>
+          <div class="analytics-label">Tokens gastos na loja (7d)</div>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-icon" style="color:#38bdf8"><i class="fas fa-map"></i></div>
+          <div class="analytics-value">${a.totalMaps.toLocaleString('pt-BR')}</div>
+          <div class="analytics-label">Mapas aprovados</div>
+        </div>
+      </div>
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;margin-top:20px">
+        <h3 style="font-family:var(--font-title);color:var(--gold);margin-bottom:14px;font-size:.95rem">
+          <i class="fas fa-crown"></i> Top 5 Jogadores (Moedas Totais)
+        </h3>
+        <div style="display:flex;flex-direction:column;gap:8px">
+        ${(a.topUsers ?? []).map((u, i) => {
+          const medals = ['🥇','🥈','🥉','#4','#5'];
+          const name = u.profile_nickname || u.nickname || '?';
+          const avatar = u.icon_url && u.icon_url.length <= 8 && !u.icon_url.startsWith('http')
+            ? `<span style="font-size:1.3rem">${u.icon_url}</span>`
+            : `<div style="width:32px;height:32px;border-radius:50%;background:var(--bg-input);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--gold);font-size:.85rem">${name[0].toUpperCase()}</div>`;
+          return `<div style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;background:var(--bg-input)">
+            <span style="font-size:1.1rem;width:28px;text-align:center">${medals[i]}</span>
+            ${avatar}
+            <span style="flex:1;color:var(--text-primary);font-size:.88rem">${name}</span>
+            <span style="color:var(--text-muted);font-size:.75rem">Nv.${u.level || 1}</span>
+            <span style="color:var(--gold);font-weight:700;font-size:.88rem"><i class="fas fa-coins" style="font-size:.75rem"></i> ${(u.coins||0).toLocaleString('pt-BR')}</span>
+          </div>`;
+        }).join('')}
+        </div>
+      </div>`;
+  } catch (err) {
+    panel.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${err.message}</h3></div>`;
+  }
 }
 
 // ── QUEST SUBMISSIONS ─────────────────────────────────────────
@@ -843,41 +929,111 @@ function setupResetButtons() {
   });
 
   document.getElementById('resetDailyBtn')?.addEventListener('click', async () => {
-    if (!confirm('⚠️ Resetar ranking DIÁRIO agora?\nO histórico será salvo antes de zerar os pontos.')) return;
+    if (!confirm('⚠️ Resetar ranking DIÁRIO agora?\nO Hall da Fama e histórico serão salvos antes de zerar os pontos.')) return;
     const btn = document.getElementById('resetDailyBtn');
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
     try {
-      await resetDailyRanking();
-      showToast('✅ Ranking diário resetado e histórico salvo!', 'success');
+      await resetDailyRankingFull();
+      showToast('✅ Ranking diário resetado! Hall da Fama e histórico salvos.', 'success');
       await loadRankingHistory();
     } catch (err) { showToast(err.message, 'error'); }
     finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sun"></i> Reset Ranking Diário'; }
   });
 
   document.getElementById('resetWeeklyBtn')?.addEventListener('click', async () => {
-    if (!confirm('⚠️ Resetar ranking SEMANAL?\nO histórico será salvo antes de zerar os pontos.')) return;
+    if (!confirm('⚠️ Resetar ranking SEMANAL?\nO Hall da Fama e histórico serão salvos antes de zerar os pontos.')) return;
     const btn = document.getElementById('resetWeeklyBtn');
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
     try {
-      await resetWeeklyRanking();
-      showToast('✅ Ranking semanal resetado e histórico salvo!', 'success');
+      await resetWeeklyRankingFull();
+      showToast('✅ Ranking semanal resetado! Hall da Fama e histórico salvos.', 'success');
       await loadRankingHistory();
     } catch (err) { showToast(err.message, 'error'); }
     finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-calendar-week"></i> Reset Ranking Semanal'; }
   });
 
   document.getElementById('resetMonthlyBtn')?.addEventListener('click', async () => {
-    if (!confirm('⚠️ Resetar ranking MENSAL?\nO histórico será salvo antes de zerar os pontos.')) return;
+    if (!confirm('⚠️ Resetar ranking MENSAL?\nO Hall da Fama e histórico serão salvos antes de zerar os pontos.')) return;
     const btn = document.getElementById('resetMonthlyBtn');
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
     try {
-      await resetMonthlyRanking();
-      showToast('✅ Ranking mensal resetado e histórico salvo!', 'success');
+      await resetMonthlyRankingFull();
+      showToast('✅ Ranking mensal resetado! Hall da Fama e histórico salvos.', 'success');
       await loadRankingHistory();
     } catch (err) { showToast(err.message, 'error'); }
     finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-calendar-alt"></i> Reset Ranking Mensal'; }
   });
 }
+
+// ── HALL DA FAMA ───────────────────────────────────────────────
+let currentHofType   = 'monthly';
+let currentHofMetric = 'coins';
+
+async function loadHallOfFame() {
+  const panel = document.getElementById('panel-halloffame');
+  if (!panel) return;
+  panel.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando Hall da Fama…</h3></div>';
+  const data = await getHallOfFame(currentHofType, currentHofMetric, 30).catch(() => []);
+  renderHallOfFame(data);
+}
+
+function renderHallOfFame(data) {
+  const panel = document.getElementById('panel-halloffame');
+  if (!panel) return;
+  const metricIcon = currentHofMetric === 'tokens' ? '💎' : '🪙';
+  const metricLabel = currentHofMetric === 'tokens' ? 'Tokens' : 'Moedas';
+
+  let html = `
+    <div class="page-header"><h2 class="page-title"><i class="fas fa-crown"></i> Hall da Fama</h2></div>
+    <p style="color:var(--text-secondary);font-size:.83rem;margin-bottom:16px">
+      Os campeões de cada período são automaticamente registrados no Hall da Fama durante o reset.
+      Requer <code style="background:var(--bg-input);padding:2px 6px;border-radius:4px">migração v11</code>.
+    </p>
+    <div class="rh-period-selector">
+      <button class="filter-btn ${currentHofType==='daily'?'active':''}" onclick="setHofType('daily')"><i class="fas fa-sun"></i> Diário</button>
+      <button class="filter-btn ${currentHofType==='weekly'?'active':''}" onclick="setHofType('weekly')"><i class="fas fa-calendar-week"></i> Semanal</button>
+      <button class="filter-btn ${currentHofType==='monthly'?'active':''}" onclick="setHofType('monthly')"><i class="fas fa-calendar-alt"></i> Mensal</button>
+    </div>
+    <div class="rh-period-selector">
+      <button class="filter-btn ${currentHofMetric==='coins'?'active':''}" onclick="setHofMetric('coins')"><i class="fas fa-coins"></i> Moedas</button>
+      <button class="filter-btn ${currentHofMetric==='tokens'?'active':''}" onclick="setHofMetric('tokens')"><i class="fas fa-gem"></i> Tokens</button>
+    </div>`;
+
+  if (!data.length) {
+    html += `<div class="empty-state" style="margin-top:20px">
+      <i class="fas fa-crown" style="font-size:2rem;opacity:.3"></i>
+      <h3>Nenhum campeão registrado ainda</h3>
+      <p style="font-size:.82rem;color:var(--text-muted)">
+        Os campeões são registrados automaticamente ao resetar rankings.<br>
+        Execute a <strong>migração v11</strong> no Supabase e depois reset um ranking.
+      </p>
+    </div>`;
+  } else {
+    html += `<div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">`;
+    data.forEach((row, idx) => {
+      const name = row.users?.profile_nickname || row.users?.nickname || '(removido)';
+      const icon = row.users?.icon_url;
+      const avatarHtml = icon && icon.length <= 8 && !icon.startsWith('http')
+        ? `<span style="font-size:1.6rem">${icon}</span>`
+        : `<div class="hof-avatar">${name[0].toUpperCase()}</div>`;
+      html += `<div class="hof-row">
+        <span class="hof-rank">${idx < 3 ? ['🥇','🥈','🥉'][idx] : `#${idx+1}`}</span>
+        ${avatarHtml}
+        <div class="hof-info">
+          <span class="hof-name">${name}</span>
+          <span class="hof-period">${row.period_label || '—'}</span>
+        </div>
+        <span class="hof-score">${metricIcon} ${(row.score||0).toLocaleString('pt-BR')} ${metricLabel}</span>
+        <span class="hof-date">${fmtDate(row.recorded_at)}</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  panel.innerHTML = html;
+}
+
+window.setHofType = function(t) { currentHofType = t; loadHallOfFame(); };
+window.setHofMetric = function(m) { currentHofMetric = m; loadHallOfFame(); };
 
 // ── UTILS ─────────────────────────────────────────────────────
 function fmtDate(iso) {

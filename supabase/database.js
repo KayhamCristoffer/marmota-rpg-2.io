@@ -1,15 +1,16 @@
 // ================================================================
-// SUPABASE DATABASE v10 — Toca das Marmotas
-// Changelog v10:
-//  - Auto-reset de rankings: checkAndAutoReset() verifica se o reset
-//    diário/semanal/mensal já foi feito no período atual e executa
-//    automaticamente se necessário (usado como fallback ao pg_cron)
-//  - getRankingResetStatus(): retorna último reset de cada tipo via
-//    tabela ranking_reset_log (criada pela migração v10_auto_ranking_reset.sql)
-//  - getNextResetTimes(): calcula horários do próximo reset de cada tipo em BRT
-//  - resetDailyRanking / resetWeeklyRanking / resetMonthlyRanking: agora também
-//    inserem registro em ranking_reset_log para rastreamento
-//  - getRankingHistory: agora suporta limitPeriods=0 para retornar todos os períodos
+// SUPABASE DATABASE v11 — Toca das Marmotas
+// Changelog v11:
+//  - Hall da Fama: getHallOfFame(), registerHallOfFame()
+//  - Amizades/Seguidores: sendFriendRequest(), acceptFriendRequest(),
+//    removeFriend(), getFriends(), getFriendRequests()
+//  - Missões em Grupo: getGroupMissions(), createGroupMission(),
+//    joinGroupMission(), leaveGroupMission()
+//  - Moderação de Conteúdo: voteContent(), getContentVotes()
+//  - Perfil Público: getPublicProfile(), updatePublicProfile()
+//  - Analytics Admin: getAdminAnalytics()
+//  - Histórico público de ranking: getRankingHistory() melhorado
+//  - Auto-reset: checkAndAutoReset() + rankingResetLog com Hall da Fama
 // ================================================================
 import { sb } from './client.js';
 import { ADMIN_UID } from './supabase-config.js';
@@ -1038,4 +1039,350 @@ export async function getRankingHistory(scoreType, metric = 'coins', limitPeriod
     throw error;
   }
   return data ?? [];
+}
+
+// ─── HALL DA FAMA ─────────────────────────────────────────────
+
+/**
+ * Busca Hall da Fama: os campeões de cada período historicamente.
+ * @param {string} scoreType 'daily'|'weekly'|'monthly'
+ * @param {string} metric    'coins'|'tokens'
+ * @param {number} limit     Quantos registros retornar
+ */
+export async function getHallOfFame(scoreType = 'monthly', metric = 'coins', limit = 20) {
+  try {
+    const { data, error } = await sb
+      .from('hall_of_fame')
+      .select(`id, user_id, score_type, metric, score, period_label, recorded_at,
+               users(nickname, profile_nickname, icon_url, level)`)
+      .eq('score_type', scoreType)
+      .eq('metric', metric)
+      .order('recorded_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data ?? [];
+  } catch (e) {
+    console.warn('getHallOfFame: tabela hall_of_fame não encontrada. Execute migração v11.', e.message);
+    return [];
+  }
+}
+
+/**
+ * Registra manualmente o campeão atual no Hall da Fama (antes de reset).
+ * Chamado pelo resetDailyRanking/Weekly/Monthly como fallback client-side.
+ */
+async function _recordHallOfFame(type, label) {
+  try {
+    const scoreCol = { daily:'coins_daily', weekly:'coins_weekly', monthly:'coins_monthly' }[type];
+    const tokCol   = { daily:'tokens_daily', weekly:'tokens_weekly', monthly:'tokens_monthly' }[type];
+    if (!scoreCol) return;
+
+    // Top moedas
+    const { data: topCoins } = await sb.from('users')
+      .select(`id, ${scoreCol}`)
+      .gt(scoreCol, 0)
+      .order(scoreCol, { ascending: false })
+      .limit(1);
+    if (topCoins?.[0]) {
+      await sb.from('hall_of_fame').insert({
+        user_id: topCoins[0].id, score_type: type, metric: 'coins',
+        score: topCoins[0][scoreCol] || 0, period_label: label
+      });
+    }
+
+    // Top tokens
+    const { data: topTok } = await sb.from('users')
+      .select(`id, ${tokCol}`)
+      .gt(tokCol, 0)
+      .order(tokCol, { ascending: false })
+      .limit(1);
+    if (topTok?.[0]) {
+      await sb.from('hall_of_fame').insert({
+        user_id: topTok[0].id, score_type: type, metric: 'tokens',
+        score: topTok[0][tokCol] || 0, period_label: label
+      });
+    }
+  } catch (e) {
+    console.warn('_recordHallOfFame skipped (run migration v11):', e.message);
+  }
+}
+
+// Sobrescreve os resets para também registrar Hall da Fama (client fallback)
+const _origResetDaily   = resetDailyRanking;
+const _origResetWeekly  = resetWeeklyRanking;
+const _origResetMonthly = resetMonthlyRanking;
+
+export async function resetDailyRankingFull() {
+  const label = brtPeriodLabel('daily');
+  await _recordHallOfFame('daily', label);
+  await _origResetDaily();
+}
+export async function resetWeeklyRankingFull() {
+  const label = brtPeriodLabel('weekly');
+  await _recordHallOfFame('weekly', label);
+  await _origResetWeekly();
+}
+export async function resetMonthlyRankingFull() {
+  const label = brtPeriodLabel('monthly');
+  await _recordHallOfFame('monthly', label);
+  await _origResetMonthly();
+}
+
+// ─── AMIZADES / SEGUIDORES ────────────────────────────────────
+
+export async function sendFriendRequest(myId, targetId) {
+  const { error } = await sb.from('friendships').insert({
+    requester: myId, addressee: targetId, status: 'pending'
+  });
+  if (error) throw error;
+}
+
+export async function acceptFriendRequest(myId, requesterId) {
+  const { error } = await sb.from('friendships')
+    .update({ status: 'accepted', updated_at: new Date().toISOString() })
+    .eq('requester', requesterId)
+    .eq('addressee', myId)
+    .eq('status', 'pending');
+  if (error) throw error;
+}
+
+export async function removeFriend(myId, otherId) {
+  await sb.from('friendships')
+    .delete()
+    .or(`and(requester.eq.${myId},addressee.eq.${otherId}),and(requester.eq.${otherId},addressee.eq.${myId})`);
+}
+
+export async function getFriends(userId) {
+  try {
+    const { data, error } = await sb
+      .from('friendships')
+      .select(`id, status, created_at,
+               requester, addressee,
+               req:requester(id, nickname, profile_nickname, icon_url, level),
+               adr:addressee(id, nickname, profile_nickname, icon_url, level)`)
+      .or(`requester.eq.${userId},addressee.eq.${userId}`)
+      .eq('status', 'accepted');
+    if (error) throw error;
+    // Normaliza: retorna sempre o "outro" usuário
+    return (data ?? []).map(r => {
+      const other = r.requester === userId ? r.adr : r.req;
+      return { ...r, friend: other };
+    });
+  } catch (e) {
+    console.warn('getFriends: tabela friendships não encontrada. Execute migração v11.');
+    return [];
+  }
+}
+
+export async function getFriendRequests(userId) {
+  try {
+    const { data, error } = await sb
+      .from('friendships')
+      .select(`id, status, created_at,
+               req:requester(id, nickname, profile_nickname, icon_url, level)`)
+      .eq('addressee', userId)
+      .eq('status', 'pending');
+    if (error) throw error;
+    return data ?? [];
+  } catch (e) {
+    console.warn('getFriendRequests: tabela friendships não encontrada.');
+    return [];
+  }
+}
+
+export async function getFriendshipStatus(myId, otherId) {
+  try {
+    const { data } = await sb.from('friendships')
+      .select('id, status, requester, addressee')
+      .or(`and(requester.eq.${myId},addressee.eq.${otherId}),and(requester.eq.${otherId},addressee.eq.${myId})`)
+      .maybeSingle();
+    return data ?? null;
+  } catch (e) { return null; }
+}
+
+// ─── MISSÕES EM GRUPO ─────────────────────────────────────────
+
+export async function getGroupMissions(statusFilter = 'open') {
+  try {
+    let q = sb.from('group_missions')
+      .select(`*, creator:creator_id(id, nickname, profile_nickname, icon_url),
+               quest:quest_id(id, title, type, reward_coins, reward_xp),
+               members:group_mission_members(user_id, role,
+                 user:user_id(id, nickname, profile_nickname, icon_url))`)
+      .order('created_at', { ascending: false });
+    if (statusFilter && statusFilter !== 'all') q = q.eq('status', statusFilter);
+    const { data, error } = await q.limit(50);
+    if (error) throw error;
+    return data ?? [];
+  } catch (e) {
+    console.warn('getGroupMissions: tabela não encontrada. Execute migração v11.');
+    return [];
+  }
+}
+
+export async function createGroupMission(data) {
+  const { data: result, error } = await sb
+    .from('group_missions')
+    .insert(data)
+    .select()
+    .single();
+  if (error) throw error;
+  // Auto-ingressa o criador como líder
+  await sb.from('group_mission_members').insert({
+    mission_id: result.id, user_id: data.creator_id, role: 'leader'
+  });
+  return result;
+}
+
+export async function joinGroupMission(missionId, userId) {
+  // Verifica capacidade
+  const { data: m } = await sb.from('group_missions')
+    .select('max_members, status')
+    .eq('id', missionId).single();
+  if (!m || m.status !== 'open') throw new Error('Missão não está aberta');
+  const { count } = await sb.from('group_mission_members')
+    .select('*', { count: 'exact', head: true })
+    .eq('mission_id', missionId);
+  if (count >= m.max_members) throw new Error('Grupo cheio!');
+  const { error } = await sb.from('group_mission_members')
+    .insert({ mission_id: missionId, user_id: userId, role: 'member' });
+  if (error) throw error;
+  // Atualiza status se ficou cheio
+  if (count + 1 >= m.max_members) {
+    await sb.from('group_missions').update({ status: 'in_progress' }).eq('id', missionId);
+  }
+}
+
+export async function leaveGroupMission(missionId, userId) {
+  const { error } = await sb.from('group_mission_members')
+    .delete().eq('mission_id', missionId).eq('user_id', userId);
+  if (error) throw error;
+}
+
+// ─── MODERAÇÃO DE CONTEÚDO ────────────────────────────────────
+
+export async function voteContent(userId, targetType, targetId, vote, reason = null) {
+  try {
+    const { error } = await sb.from('content_votes').upsert({
+      user_id: userId, target_type: targetType, target_id: targetId,
+      vote, reason
+    }, { onConflict: 'user_id,target_type,target_id' });
+    if (error) throw error;
+  } catch (e) {
+    console.warn('voteContent: tabela não encontrada. Execute migração v11.');
+    throw e;
+  }
+}
+
+export async function getContentVotes(targetType, targetId) {
+  try {
+    const { data, error } = await sb.from('content_votes')
+      .select('*, users(nickname, profile_nickname)')
+      .eq('target_type', targetType)
+      .eq('target_id', targetId);
+    if (error) throw error;
+    return data ?? [];
+  } catch (e) { return []; }
+}
+
+// ─── PERFIL PÚBLICO ───────────────────────────────────────────
+
+export async function getPublicProfile(nickname) {
+  try {
+    const { data, error } = await sb.from('users')
+      .select(`id, nickname, profile_nickname, profile_role, icon_url, level, xp,
+               coins, tokens, public_profile, profile_bio, social_links, created_at,
+               user_badges(earned_at, achievements(title, icon_url, description))`)
+      .eq('nickname', nickname)
+      .eq('public_profile', true)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  } catch (e) { return null; }
+}
+
+export async function updatePublicProfile(userId, { bio, socialLinks, isPublic }) {
+  const upd = {};
+  if (bio !== undefined)         upd.profile_bio   = bio;
+  if (socialLinks !== undefined) upd.social_links  = socialLinks;
+  if (isPublic !== undefined)    upd.public_profile = isPublic;
+  const { error } = await sb.from('users').update(upd).eq('id', userId);
+  if (error) throw error;
+}
+
+export async function searchPublicUsers(query) {
+  try {
+    const { data, error } = await sb.from('users')
+      .select('id, nickname, profile_nickname, icon_url, level, public_profile')
+      .or(`nickname.ilike.%${query}%,profile_nickname.ilike.%${query}%`)
+      .eq('public_profile', true)
+      .limit(20);
+    if (error) throw error;
+    return data ?? [];
+  } catch (e) { return []; }
+}
+
+// ─── ANALYTICS ADMIN ──────────────────────────────────────────
+
+export async function getAdminAnalytics() {
+  try {
+    const [
+      { count: totalUsers },
+      { count: totalQuests },
+      { count: pendingSubs },
+      { count: approvedSubs },
+      { count: totalMaps },
+      { count: totalPurchases }
+    ] = await Promise.all([
+      sb.from('users').select('*', { count: 'exact', head: true }),
+      sb.from('quests').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      sb.from('submissions').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+      sb.from('submissions').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
+      sb.from('maps').select('*', { count: 'exact', head: true }),
+      sb.from('shop_purchases').select('*', { count: 'exact', head: true })
+    ]);
+
+    // Top usuário por moedas totais
+    const { data: topUsers } = await sb.from('users')
+      .select('id, nickname, profile_nickname, icon_url, coins, tokens, xp, level')
+      .order('coins', { ascending: false })
+      .limit(5);
+
+    // Submissões recentes (últimos 7 dias)
+    const since7 = new Date(Date.now() - 7 * 86400000).toISOString();
+    const { count: recentSubs } = await sb.from('submissions')
+      .select('*', { count: 'exact', head: true })
+      .gte('submitted_at', since7);
+
+    // Usuários ativos (que fizeram submissão nos últimos 7 dias)
+    const { data: activeUsers } = await sb.from('submissions')
+      .select('user_id')
+      .gte('submitted_at', since7)
+      .limit(200);
+    const activeCount = new Set((activeUsers ?? []).map(s => s.user_id)).size;
+
+    // Compras por moeda/token
+    const { data: purchases } = await sb.from('shop_purchases')
+      .select('paid_coins, paid_tokens')
+      .gte('purchased_at', since7);
+    const revCoins  = (purchases ?? []).reduce((a, p) => a + (p.paid_coins  || 0), 0);
+    const revTokens = (purchases ?? []).reduce((a, p) => a + (p.paid_tokens || 0), 0);
+
+    return {
+      totalUsers:   totalUsers   ?? 0,
+      totalQuests:  totalQuests  ?? 0,
+      pendingSubs:  pendingSubs  ?? 0,
+      approvedSubs: approvedSubs ?? 0,
+      totalMaps:    totalMaps    ?? 0,
+      totalPurchases: totalPurchases ?? 0,
+      recentSubs:   recentSubs   ?? 0,
+      activeUsers:  activeCount,
+      topUsers:     topUsers     ?? [],
+      revenueCoins: revCoins,
+      revenueTokens: revTokens
+    };
+  } catch (e) {
+    console.error('getAdminAnalytics:', e);
+    return null;
+  }
 }

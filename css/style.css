@@ -802,3 +802,108 @@ input,select,textarea { font-family:inherit; }
   .login-card { padding:1.5rem 1.2rem; }
   .profile-card { flex-direction:column; text-align:center; }
 }
+
+/* ─── ANALYTICS GRID (admin) ──────────────────────────────────── */
+.analytics-grid {
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+  gap:14px; margin-bottom:20px;
+}
+.analytics-card {
+  background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-md); padding:18px 16px;
+  display:flex; flex-direction:column; gap:6px;
+  transition:border-color .2s,box-shadow .2s;
+  animation:quest-card-in .25s ease both;
+}
+.analytics-card:hover { border-color:var(--gold-dark); box-shadow:0 4px 16px rgba(212,175,55,.12); }
+.analytics-icon { font-size:1.5rem; margin-bottom:2px; }
+.analytics-value { font-size:1.6rem; font-weight:700; font-family:var(--font-title); color:var(--text-primary); line-height:1; }
+.analytics-label { font-size:.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; }
+
+/* ─── HALL DA FAMA ────────────────────────────────────────────── */
+.hof-row {
+  display:flex; align-items:center; gap:12px;
+  background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-md); padding:12px 16px;
+  transition:border-color .2s,box-shadow .2s;
+}
+.hof-row:hover { border-color:var(--gold-dark); box-shadow:0 2px 10px rgba(212,175,55,.12); }
+.hof-rank { font-size:1.2rem; width:34px; text-align:center; flex-shrink:0; }
+.hof-avatar {
+  width:40px; height:40px; border-radius:50%;
+  background:var(--bg-input); border:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:.95rem; color:var(--gold);
+  flex-shrink:0;
+}
+.hof-info { flex:1; display:flex; flex-direction:column; gap:2px; overflow:hidden; }
+.hof-name { color:var(--text-primary); font-size:.9rem; font-family:var(--font-title); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hof-period { font-size:.72rem; color:var(--text-muted); }
+.hof-score { color:var(--gold); font-weight:700; font-size:.88rem; white-space:nowrap; }
+.hof-date { font-size:.72rem; color:var(--text-muted); white-space:nowrap; }
+
+/* ─── GROUP MISSIONS ──────────────────────────────────────────── */
+.group-mission-card {
+  background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-md); padding:16px;
+  display:flex; flex-direction:column; gap:10px;
+  margin-bottom:12px;
+  transition:border-color .2s,box-shadow .2s;
+  animation:quest-card-in .25s ease both;
+}
+.group-mission-card:hover { border-color:var(--gold-dark); }
+.gm-header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.gm-title { font-family:var(--font-title); color:var(--text-primary); font-size:.95rem; }
+.gm-status { font-size:.78rem; font-weight:700; }
+.gm-desc { font-size:.82rem; color:var(--text-secondary); line-height:1.5; margin:0; }
+.gm-meta { display:flex; gap:12px; flex-wrap:wrap; font-size:.78rem; color:var(--text-muted); }
+.gm-members { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.gm-member-avatar {
+  width:30px; height:30px; border-radius:50%; border:2px solid var(--border);
+  background:var(--bg-input); display:flex; align-items:center; justify-content:center;
+  font-size:1rem;
+}
+.gm-member-initial { font-size:.75rem; font-weight:700; color:var(--gold); }
+.gm-member-more { font-size:.72rem; color:var(--text-muted); background:var(--bg-hover); }
+
+/* ─── FRIENDS ─────────────────────────────────────────────────── */
+.friend-row {
+  display:flex; align-items:center; gap:12px;
+  background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-md); padding:12px 14px;
+  transition:border-color .15s;
+}
+.friend-row:hover { border-color:var(--gold-dark); }
+.friend-avatar {
+  width:38px; height:38px; border-radius:50%;
+  background:var(--bg-input); border:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:.9rem; color:var(--gold); flex-shrink:0;
+}
+.friend-info { flex:1; display:flex; flex-direction:column; gap:2px; overflow:hidden; }
+.friend-name { color:var(--text-primary); font-size:.88rem; font-family:var(--font-title); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.friend-meta { font-size:.72rem; color:var(--text-muted); }
+.friends-requests-header {
+  font-family:var(--font-title); font-size:.85rem; color:var(--gold);
+  margin-bottom:10px; display:flex; align-items:center; gap:6px;
+}
+
+/* ─── AUTO-RESET INFO BOX ─────────────────────────────────────── */
+.auto-reset-info-box {
+  background:var(--bg-card); border:1px solid var(--border);
+  border-radius:var(--radius-md); padding:16px 20px; margin-bottom:20px;
+}
+.auto-reset-info-title {
+  font-family:var(--font-title); color:var(--text-primary);
+  font-size:.9rem; margin-bottom:10px;
+  display:flex; align-items:center; flex-wrap:wrap; gap:6px;
+}
+
+/* ─── RESPONSIVE NEW PAGES ────────────────────────────────────── */
+@media (max-width:768px) {
+  .analytics-grid { grid-template-columns:repeat(2,1fr); }
+  .hof-date { display:none; }
+}
+@media (max-width:480px) {
+  .analytics-grid { grid-template-columns:1fr; }
+}

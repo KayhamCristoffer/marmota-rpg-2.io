@@ -1,5 +1,5 @@
 // ============================================================
-// HOME.JS v9 — Toca das Marmotas - Dashboard com Supabase
+// HOME.JS v11 — Toca das Marmotas - Dashboard com Supabase
 // Changelog v9:
 //  - Ranking diário/semanal/mensal: período BRT corrigido (sem dia anterior)
 //    exibe data[HH:MM] até data[HH:MM] com timezone America/Sao_Paulo
@@ -23,7 +23,11 @@ import {
   formatCooldown, getRankingPeriodLabel,
   getShopItems, buyShopItem, getUserPurchases,
   getShopFavorites, addShopFavorite, removeShopFavorite,
-  incrementMapView, checkAndAutoReset
+  incrementMapView, checkAndAutoReset,
+  getRankingHistory, getHallOfFame,
+  getGroupMissions, createGroupMission, joinGroupMission, leaveGroupMission,
+  getFriends, getFriendRequests, sendFriendRequest, acceptFriendRequest, removeFriend,
+  updatePublicProfile
 } from '../supabase/database.js';
 
 // ── Estado ───────────────────────────────────────────────────
@@ -33,8 +37,11 @@ let currentFilter    = 'all';
 let currentMapFilter = 'all';
 let currentPeriod    = 'total';
 let currentMetric    = 'coins';
-let currentShopTab   = 'items';
-let rankingChannel   = null;
+let currentShopTab        = 'items';
+let currentRankingHistTab = 'history'; // 'history' | 'halloffame'
+let currentHistType       = 'monthly';
+let currentHistMetric     = 'coins';
+let rankingChannel        = null;
 let allQuests        = [];
 let allMaps          = [];
 let mySubmissions    = [];
@@ -127,6 +134,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   setupModals();
   setupProfile();
   setupEmojiPicker();
+  setupPublicProfileToggle();
   setupModalOverlayClose();
 
   await loadDashboard();
@@ -199,17 +207,23 @@ function navigateTo(page) {
   document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active');
   const titles = {
     dashboard:'Dashboard', quests:'Quests', 'my-quests':'Minhas Quests',
-    maps:'Mapas', ranking:'Ranking', shop:'Loja', profile:'Perfil'
+    maps:'Mapas', ranking:'Ranking', shop:'Loja', profile:'Perfil',
+    'ranking-history':'Histórico de Rankings', 'hall-of-fame':'Hall da Fama',
+    'group-missions':'Missões em Grupo', friends:'Amigos'
   };
   const topbarTitle = document.getElementById('topbarTitle');
   if (topbarTitle) topbarTitle.textContent = titles[page] || page;
 
-  if (page === 'quests')    loadQuests();
-  if (page === 'my-quests') loadMyQuests();
-  if (page === 'ranking')   loadRanking();
-  if (page === 'maps')      loadMaps();
-  if (page === 'shop')      loadShop();
-  if (page === 'profile')   loadProfile();
+  if (page === 'quests')           loadQuests();
+  if (page === 'my-quests')        loadMyQuests();
+  if (page === 'ranking')          loadRanking();
+  if (page === 'maps')             loadMaps();
+  if (page === 'shop')             loadShop();
+  if (page === 'profile')          loadProfile();
+  if (page === 'ranking-history')  loadRankingHistoryPage();
+  if (page === 'hall-of-fame')     loadHallOfFamePage();
+  if (page === 'group-missions')   loadGroupMissionsPage();
+  if (page === 'friends')          loadFriendsPage();
 
   document.getElementById('sidebar')?.classList.remove('mobile-open');
 }
@@ -918,6 +932,20 @@ async function loadProfile() {
     if (eu)     eu.value     = (p.icon_url && !isEmoji(p.icon_url)) ? p.icon_url : '';
     if (ep && p.icon_url && isEmoji(p.icon_url)) ep.textContent = p.icon_url;
     else if (ep) ep.textContent = '🐾';
+
+    // Bio e perfil público
+    const bioEl    = document.getElementById('editProfileBio');
+    const toggleEl = document.getElementById('publicProfileToggle');
+    if (bioEl)    bioEl.value   = p.profile_bio  || '';
+    if (toggleEl) toggleEl.checked = p.public_profile === true;
+
+    // URL pública do perfil
+    const profileUrlEl = document.getElementById('profilePublicUrl');
+    if (profileUrlEl && p.public_profile && p.nickname) {
+      const base = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
+      profileUrlEl.textContent = `${base}profile.html?u=${p.nickname}`;
+      profileUrlEl.closest?.('[id="profileUrlRow"]')?.style?.setProperty('display', 'flex');
+    }
   } catch (err) {
     showToast('Erro ao carregar perfil: ' + err.message, 'error');
   }
@@ -935,7 +963,9 @@ function setupProfile() {
       return;
     }
 
-    const iconUrl = urlVal || (emoji && emoji !== '🐾' ? emoji : null);
+    const iconUrl     = urlVal || (emoji && emoji !== '🐾' ? emoji : null);
+    const bio          = document.getElementById('editProfileBio')?.value?.trim() || null;
+    const isPublic     = document.getElementById('publicProfileToggle')?.checked ?? false;
 
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Salvando…';
@@ -945,11 +975,16 @@ function setupProfile() {
         profile_nickname: pnick,
         icon_url: iconUrl || null
       });
+      // Salva bio + perfil público separado (campos extras na tabela users)
+      await updatePublicProfile(currentUser.id, { bio, isPublic }).catch(() => {});
+
       if (updated) currentProfile = { ...currentProfile, ...updated };
       else {
         currentProfile.profile_nickname = pnick;
         currentProfile.icon_url = iconUrl || null;
       }
+      currentProfile.profile_bio    = bio;
+      currentProfile.public_profile = isPublic;
       renderUserInSidebar(currentProfile);
       await loadProfile();
       showToast('✅ Perfil atualizado com sucesso!', 'success');
@@ -1198,4 +1233,401 @@ async function submitMap() {
     btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar para Análise';
     hideLoading();
   }
+}
+
+// ─── RANKING HISTORY PAGE ─────────────────────────────────────
+
+async function loadRankingHistoryPage() {
+  const container = document.getElementById('rankingHistContainer');
+  if (!container) return;
+  container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando histórico…</h3></div>';
+  try {
+    const data = await getRankingHistory(currentHistType, currentHistMetric, 0);
+    renderRankingHistoryPage(data, container);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${e.message}</h3></div>`;
+  }
+}
+
+function renderRankingHistoryPage(history, container) {
+  if (!history?.length) {
+    container.innerHTML = `<div class="empty-state">
+      <i class="fas fa-history" style="font-size:2rem;opacity:.3;margin-bottom:8px"></i>
+      <h3>Nenhum histórico disponível</h3>
+      <p style="font-size:.82rem;color:var(--text-muted)">
+        O histórico é gerado automaticamente ao resetar rankings.<br>
+        Peça ao admin para executar um reset manual.
+      </p>
+    </div>`;
+    return;
+  }
+  const byPeriod = {};
+  for (const row of history) {
+    const lbl = row.period_label || 'sem período';
+    if (!byPeriod[lbl]) byPeriod[lbl] = [];
+    byPeriod[lbl].push(row);
+  }
+  const scoreField  = currentHistMetric === 'tokens' ? 'score_tokens' : 'score_coins';
+  const medalIcon   = currentHistMetric === 'tokens' ? '💎' : '🪙';
+  const periods = Object.keys(byPeriod).sort((a, b) => b.localeCompare(a));
+  let html = '';
+  for (const period of periods) {
+    const rows = byPeriod[period].sort((a, b) => (b[scoreField]||0) - (a[scoreField]||0));
+    const medals = ['🥇','🥈','🥉'];
+    html += `<div class="rh-period-block">
+      <div class="rh-period-title">📅 ${period}</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+      ${rows.slice(0,10).map((row,idx) => {
+        const name  = row.users?.profile_nickname || row.users?.nickname || '(usuário removido)';
+        const score = (row[scoreField]||0).toLocaleString('pt-BR');
+        const medal = medals[idx] || `#${idx+1}`;
+        return `<div class="rh-row">
+          <span class="rh-medal">${medal}</span>
+          <span class="rh-name">${name}</span>
+          <span class="rh-score">${medalIcon} ${score}</span>
+        </div>`;
+      }).join('')}
+      ${rows.length > 10 ? `<div style="font-size:.75rem;color:var(--text-muted);text-align:center;padding-top:4px">+${rows.length-10} outros jogadores</div>` : ''}
+      </div>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+window.setHistType = function(t) {
+  currentHistType = t;
+  document.querySelectorAll('#page-ranking-history .filter-btn[data-hist-type]').forEach(b => b.classList.toggle('active', b.dataset.histType === t));
+  loadRankingHistoryPage();
+};
+window.setHistMetric = function(m) {
+  currentHistMetric = m;
+  document.querySelectorAll('#page-ranking-history .filter-btn[data-hist-metric]').forEach(b => b.classList.toggle('active', b.dataset.histMetric === m));
+  loadRankingHistoryPage();
+};
+
+// ─── HALL DA FAMA PAGE ────────────────────────────────────────
+let currentHofPageType   = 'monthly';
+let currentHofPageMetric = 'coins';
+
+async function loadHallOfFamePage() {
+  const container = document.getElementById('hofContainer');
+  if (!container) return;
+  container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando Hall da Fama…</h3></div>';
+  try {
+    const data = await getHallOfFame(currentHofPageType, currentHofPageMetric, 50);
+    renderHallOfFameHome(data, container);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${e.message}</h3></div>`;
+  }
+}
+
+function renderHallOfFameHome(data, container) {
+  const metricIcon  = currentHofPageMetric === 'tokens' ? '💎' : '🪙';
+  const metricLabel = currentHofPageMetric === 'tokens' ? 'Tokens' : 'Moedas';
+
+  if (!data?.length) {
+    container.innerHTML = `<div class="empty-state">
+      <i class="fas fa-crown" style="font-size:2.5rem;opacity:.25;margin-bottom:8px;color:var(--gold)"></i>
+      <h3>Hall da Fama vazio</h3>
+      <p style="font-size:.82rem;color:var(--text-muted)">
+        Os campeões de cada período serão registrados aqui.<br>
+        Requer migração v11 aplicada no Supabase.
+      </p>
+    </div>`;
+    return;
+  }
+
+  let html = `<div style="display:flex;flex-direction:column;gap:10px">`;
+  data.forEach((row, idx) => {
+    const name = row.users?.profile_nickname || row.users?.nickname || '?';
+    const icon = row.users?.icon_url;
+    const avatarHtml = icon && icon.length <= 8 && !icon.startsWith('http')
+      ? `<span style="font-size:1.8rem">${icon}</span>`
+      : `<div class="hof-avatar">${name[0].toUpperCase()}</div>`;
+    const medals = ['🥇','🥈','🥉'];
+    html += `<div class="hof-row">
+      <span class="hof-rank">${medals[idx] || `#${idx+1}`}</span>
+      ${avatarHtml}
+      <div class="hof-info">
+        <span class="hof-name">${name}</span>
+        <span class="hof-period">${row.period_label || '—'}</span>
+      </div>
+      <span class="hof-score">${metricIcon} ${(row.score||0).toLocaleString('pt-BR')} ${metricLabel}</span>
+    </div>`;
+  });
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+window.setHofPageType = function(t) {
+  currentHofPageType = t;
+  document.querySelectorAll('#page-hall-of-fame .filter-btn[data-hof-type]').forEach(b => b.classList.toggle('active', b.dataset.hofType === t));
+  loadHallOfFamePage();
+};
+window.setHofPageMetric = function(m) {
+  currentHofPageMetric = m;
+  document.querySelectorAll('#page-hall-of-fame .filter-btn[data-hof-metric]').forEach(b => b.classList.toggle('active', b.dataset.hofMetric === m));
+  loadHallOfFamePage();
+};
+
+// ─── GROUP MISSIONS PAGE ──────────────────────────────────────
+
+async function loadGroupMissionsPage() {
+  const container = document.getElementById('groupMissionsContainer');
+  if (!container) return;
+  container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando missões…</h3></div>';
+  try {
+    const data = await getGroupMissions('all');
+    renderGroupMissions(data, container);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${e.message}</h3></div>`;
+  }
+}
+
+function renderGroupMissions(missions, container) {
+  if (!missions?.length) {
+    container.innerHTML = `<div class="empty-state">
+      <i class="fas fa-users" style="font-size:2rem;opacity:.3;margin-bottom:8px"></i>
+      <h3>Nenhuma missão em grupo</h3>
+      <p style="font-size:.82rem;color:var(--text-muted)">Crie a primeira missão em grupo e convide seus amigos!</p>
+      <button class="btn-primary" style="margin-top:12px" onclick="openCreateGroupMissionModal()">
+        <i class="fas fa-plus"></i> Criar Missão em Grupo
+      </button>
+    </div>`;
+    return;
+  }
+
+  const statusColors = { open:'#22c55e', in_progress:'#f59e0b', completed:'#60a5fa', cancelled:'#ef4444' };
+  const statusLabels = { open:'Aberta', in_progress:'Em Progresso', completed:'Concluída', cancelled:'Cancelada' };
+
+  container.innerHTML = missions.map(m => {
+    const creator   = m.creator?.profile_nickname || m.creator?.nickname || '?';
+    const memberCount = m.members?.length || 0;
+    const isMember  = m.members?.some(mb => mb.user_id === currentUser?.id);
+    const statusColor = statusColors[m.status] || '#888';
+    const statusLabel = statusLabels[m.status] || m.status;
+    return `<div class="group-mission-card">
+      <div class="gm-header">
+        <span class="gm-title">${m.title}</span>
+        <span class="gm-status" style="color:${statusColor}">${statusLabel}</span>
+      </div>
+      ${m.description ? `<p class="gm-desc">${m.description}</p>` : ''}
+      <div class="gm-meta">
+        <span><i class="fas fa-user" style="opacity:.5"></i> ${creator}</span>
+        <span><i class="fas fa-users" style="opacity:.5"></i> ${memberCount}/${m.max_members || 4} membros</span>
+        ${m.quest ? `<span><i class="fas fa-scroll" style="opacity:.5"></i> ${m.quest.title}</span>` : ''}
+      </div>
+      <div class="gm-members">
+        ${(m.members||[]).slice(0,6).map(mb => {
+          const n = mb.user?.profile_nickname || mb.user?.nickname || '?';
+          const ico = mb.user?.icon_url;
+          return ico && ico.length <= 8 && !ico.startsWith('http')
+            ? `<span class="gm-member-avatar" title="${n}">${ico}</span>`
+            : `<span class="gm-member-avatar gm-member-initial" title="${n}">${n[0].toUpperCase()}</span>`;
+        }).join('')}
+        ${(m.members?.length||0) > 6 ? `<span class="gm-member-avatar gm-member-more">+${m.members.length-6}</span>` : ''}
+      </div>
+      ${m.status === 'open' && !isMember && currentUser ? `
+        <button class="btn-primary" style="width:100%;font-size:.82rem;padding:8px" onclick="handleJoinMission('${m.id}')">
+          <i class="fas fa-user-plus"></i> Entrar no Grupo
+        </button>` : ''}
+      ${isMember && m.status !== 'completed' ? `
+        <button class="btn-secondary" style="width:100%;font-size:.82rem;padding:8px;color:var(--red-text,#ef4444)" onclick="handleLeaveMission('${m.id}')">
+          <i class="fas fa-sign-out-alt"></i> Sair do Grupo
+        </button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+window.handleJoinMission = async function(missionId) {
+  showLoading('Entrando na missão…');
+  try {
+    await joinGroupMission(missionId, currentUser.id);
+    showToast('✅ Você entrou no grupo!', 'success');
+    loadGroupMissionsPage();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { hideLoading(); }
+};
+
+window.handleLeaveMission = async function(missionId) {
+  if (!confirm('Sair desta missão em grupo?')) return;
+  showLoading('Saindo da missão…');
+  try {
+    await leaveGroupMission(missionId, currentUser.id);
+    showToast('Você saiu do grupo.', 'info');
+    loadGroupMissionsPage();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { hideLoading(); }
+};
+
+window.openCreateGroupMissionModal = function() {
+  openModal('createGroupMissionModal');
+};
+
+window.confirmCreateGroupMission = async function() {
+  const title = document.getElementById('gmTitle')?.value?.trim();
+  const desc  = document.getElementById('gmDescription')?.value?.trim();
+  const max   = parseInt(document.getElementById('gmMaxMembers')?.value || '4');
+  if (!title) { showToast('Título é obrigatório', 'warning'); return; }
+  showLoading('Criando missão…');
+  try {
+    await createGroupMission({ title, description: desc, creator_id: currentUser.id, max_members: max });
+    closeModal('createGroupMissionModal');
+    showToast('✅ Missão em grupo criada!', 'success');
+    loadGroupMissionsPage();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { hideLoading(); }
+};
+
+// ─── FRIENDS PAGE ─────────────────────────────────────────────
+
+async function loadFriendsPage() {
+  const container = document.getElementById('friendsContainer');
+  const reqContainer = document.getElementById('friendRequestsContainer');
+  if (!container) return;
+
+  container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando amigos…</h3></div>';
+
+  try {
+    const [friends, requests] = await Promise.all([
+      getFriends(currentUser.id).catch(() => []),
+      getFriendRequests(currentUser.id).catch(() => [])
+    ]);
+
+    // Renderiza pedidos pendentes
+    if (reqContainer) {
+      if (requests.length) {
+        reqContainer.style.display = 'block';
+        reqContainer.innerHTML = `<div class="friends-requests-header"><i class="fas fa-bell"></i> Pedidos de amizade (${requests.length})</div>` +
+          requests.map(r => {
+            const name = r.req?.profile_nickname || r.req?.nickname || '?';
+            const ico  = r.req?.icon_url;
+            const avatarHtml = ico && ico.length <= 8 && !ico.startsWith('http')
+              ? `<span style="font-size:1.5rem">${ico}</span>`
+              : `<div class="friend-avatar">${name[0].toUpperCase()}</div>`;
+            return `<div class="friend-row">
+              ${avatarHtml}
+              <div class="friend-info"><span class="friend-name">${name}</span><span class="friend-meta">Nv.${r.req?.level||1}</span></div>
+              <button class="btn-primary" style="font-size:.8rem;padding:6px 12px" onclick="handleAcceptFriend('${r.req?.id}')">
+                <i class="fas fa-check"></i> Aceitar
+              </button>
+            </div>`;
+          }).join('');
+      } else { reqContainer.style.display = 'none'; }
+    }
+
+    // Renderiza amigos
+    if (!friends.length) {
+      container.innerHTML = `<div class="empty-state">
+        <i class="fas fa-users" style="font-size:2rem;opacity:.3;margin-bottom:8px"></i>
+        <h3>Nenhum amigo ainda</h3>
+        <p style="font-size:.82rem;color:var(--text-muted)">Encontre outros jogadores para adicionar!</p>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap">
+          <input type="text" id="friendSearchInput" placeholder="Buscar jogador por nickname…" style="flex:1;min-width:180px;max-width:280px"/>
+          <button class="btn-primary" style="font-size:.82rem" onclick="handleSearchFriend()"><i class="fas fa-search"></i> Buscar</button>
+        </div>
+        <div id="friendSearchResults" style="margin-top:12px;width:100%;max-width:400px"></div>
+      </div>`;
+      return;
+    }
+
+    container.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <input type="text" id="friendSearchInput" placeholder="Buscar jogador por nickname…" style="flex:1;min-width:180px"/>
+      <button class="btn-primary" style="font-size:.82rem" onclick="handleSearchFriend()"><i class="fas fa-search"></i> Buscar</button>
+    </div>
+    <div id="friendSearchResults" style="margin-bottom:12px"></div>
+    <div style="display:flex;flex-direction:column;gap:8px">` +
+      friends.map(f => {
+        const u = f.friend;
+        const name = u?.profile_nickname || u?.nickname || '?';
+        const ico  = u?.icon_url;
+        const avatarHtml = ico && ico.length <= 8 && !ico.startsWith('http')
+          ? `<span style="font-size:1.5rem">${ico}</span>`
+          : `<div class="friend-avatar">${(name[0]||'?').toUpperCase()}</div>`;
+        return `<div class="friend-row">
+          ${avatarHtml}
+          <div class="friend-info">
+            <span class="friend-name">${name}</span>
+            <span class="friend-meta">Nv.${u?.level||1}</span>
+          </div>
+          <button class="btn-secondary" style="font-size:.78rem;padding:5px 10px;color:var(--text-muted)"
+            onclick="handleRemoveFriend('${u?.id}','${name}')">
+            <i class="fas fa-user-minus"></i>
+          </button>
+        </div>`;
+      }).join('') + `</div>`;
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${e.message}</h3></div>`;
+  }
+}
+
+window.handleAcceptFriend = async function(requesterId) {
+  showLoading('Aceitando pedido…');
+  try {
+    await acceptFriendRequest(currentUser.id, requesterId);
+    showToast('✅ Amizade aceita!', 'success');
+    loadFriendsPage();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { hideLoading(); }
+};
+
+window.handleRemoveFriend = async function(otherId, name) {
+  if (!confirm(`Remover ${name} dos amigos?`)) return;
+  showLoading('Removendo amigo…');
+  try {
+    await removeFriend(currentUser.id, otherId);
+    showToast(`${name} removido dos amigos.`, 'info');
+    loadFriendsPage();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { hideLoading(); }
+};
+
+window.handleSearchFriend = async function() {
+  const q = document.getElementById('friendSearchInput')?.value?.trim();
+  const resultsEl = document.getElementById('friendSearchResults');
+  if (!q || !resultsEl) return;
+  resultsEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  try {
+    const { searchPublicUsers } = await import('../supabase/database.js');
+    const users = await searchPublicUsers(q);
+    if (!users.length) { resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted)">Nenhum jogador público encontrado.</p>'; return; }
+    resultsEl.innerHTML = users.filter(u => u.id !== currentUser?.id).map(u => {
+      const name = u.profile_nickname || u.nickname || '?';
+      const ico  = u.icon_url;
+      const avatarHtml = ico && ico.length <= 8 && !ico.startsWith('http')
+        ? `<span style="font-size:1.3rem">${ico}</span>`
+        : `<div class="friend-avatar" style="width:32px;height:32px;font-size:.8rem">${name[0].toUpperCase()}</div>`;
+      return `<div class="friend-row" style="padding:8px">
+        ${avatarHtml}
+        <div class="friend-info"><span class="friend-name" style="font-size:.85rem">${name}</span></div>
+        <button class="btn-primary" style="font-size:.78rem;padding:5px 10px" onclick="handleAddFriend('${u.id}','${name}')">
+          <i class="fas fa-user-plus"></i> Adicionar
+        </button>
+      </div>`;
+    }).join('');
+  } catch (e) { resultsEl.innerHTML = `<p style="color:var(--text-muted);font-size:.82rem">${e.message}</p>`; }
+};
+
+window.handleAddFriend = async function(targetId, name) {
+  showLoading('Enviando pedido de amizade…');
+  try {
+    await sendFriendRequest(currentUser.id, targetId);
+    showToast(`✅ Pedido de amizade enviado para ${name}!`, 'success');
+  } catch (e) { showToast(e.message === 'duplicate key' ? 'Pedido já enviado!' : e.message, 'error'); }
+  finally { hideLoading(); }
+};
+
+// ─── PUBLIC PROFILE in profile page ──────────────────────────
+// O toggle de perfil público é salvo junto com o botão Salvar Perfil.
+// Esta função apenas configura feedback visual imediato.
+function setupPublicProfileToggle() {
+  const toggle = document.getElementById('publicProfileToggle');
+  if (!toggle) return;
+  // Feedback visual: não salva imediatamente — salva ao clicar em "Salvar"
+  toggle.addEventListener('change', () => {
+    const hint = document.getElementById('publicProfileHint');
+    if (hint) hint.textContent = toggle.checked
+      ? '🌐 Clique em Salvar para tornar o perfil público'
+      : '🔒 Clique em Salvar para tornar o perfil privado';
+  });
 }

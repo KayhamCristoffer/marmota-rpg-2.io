@@ -163,6 +163,10 @@
       <div class="nav-item" data-page="my-quests"><i class="fas fa-tasks"></i><span>Minhas Quests</span></div>
       <div class="nav-item" data-page="maps"><i class="fas fa-map"></i><span>Mapas</span></div>
       <div class="nav-item" data-page="ranking"><i class="fas fa-trophy"></i><span>Ranking</span></div>
+      <div class="nav-item" data-page="ranking-history"><i class="fas fa-history"></i><span>Hist. Rankings</span></div>
+      <div class="nav-item" data-page="hall-of-fame"><i class="fas fa-crown"></i><span>Hall da Fama</span></div>
+      <div class="nav-item" data-page="group-missions"><i class="fas fa-users"></i><span>Missões Grupo</span></div>
+      <div class="nav-item" data-page="friends"><i class="fas fa-user-friends"></i><span>Amigos</span></div>
       <div class="nav-item" data-page="shop"><i class="fas fa-store"></i><span>Loja</span></div>
       <div class="nav-item" data-page="profile"><i class="fas fa-user"></i><span>Perfil</span></div>
       <div class="nav-divider"></div>
@@ -361,7 +365,93 @@
           <label style="opacity:.6"><i class="fas fa-at"></i> Nickname único <small>(não editável após o cadastro)</small></label>
           <input type="text" id="editNickname" placeholder="nickname" readonly style="opacity:.5;cursor:not-allowed"/>
         </div>
+
+        <!-- Bio e Perfil Público -->
+        <div class="form-group">
+          <label><i class="fas fa-align-left"></i> Bio pública <small>(opcional)</small></label>
+          <textarea id="editProfileBio" placeholder="Conte algo sobre você…" maxlength="200" style="height:70px"></textarea>
+        </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:12px">
+          <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="publicProfileToggle" style="width:18px;height:18px;cursor:pointer"/>
+            <span><i class="fas fa-globe"></i> Perfil público <small style="color:var(--text-muted)">(permite busca por outros jogadores)</small></span>
+          </label>
+        </div>
+        <div id="profileUrlRow" style="display:none;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-input);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
+          <i class="fas fa-link" style="color:var(--gold)"></i>
+          <span>Seu link público:</span>
+          <span id="profilePublicUrl" style="color:var(--gold);word-break:break-all"></span>
+        </div>
+        <div id="publicProfileHint" style="font-size:.78rem;color:var(--text-muted);min-height:18px"></div>
         <button class="btn-primary" id="saveProfileBtn"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+
+    <!-- PAGE: RANKING HISTORY -->
+    <div class="page" id="page-ranking-history">
+      <div class="page-header"><h2 class="page-title"><i class="fas fa-history"></i> Histórico de Rankings</h2></div>
+      <p style="font-size:.83rem;color:var(--text-secondary);margin-bottom:12px">
+        Veja os melhores jogadores de períodos anteriores. Histórico gerado automaticamente a cada reset.
+      </p>
+      <div class="filter-bar" style="margin-bottom:.5rem">
+        <button class="filter-btn active" data-hist-type="daily" onclick="setHistType('daily')"><i class="fas fa-sun"></i> Diário</button>
+        <button class="filter-btn" data-hist-type="weekly" onclick="setHistType('weekly')"><i class="fas fa-calendar-week"></i> Semanal</button>
+        <button class="filter-btn" data-hist-type="monthly" onclick="setHistType('monthly')"><i class="fas fa-calendar-alt"></i> Mensal</button>
+      </div>
+      <div class="filter-bar" style="margin-bottom:1.2rem">
+        <button class="filter-btn active" data-hist-metric="coins" onclick="setHistMetric('coins')"><i class="fas fa-coins"></i> Moedas</button>
+        <button class="filter-btn" data-hist-metric="tokens" onclick="setHistMetric('tokens')"><i class="fas fa-gem"></i> Tokens</button>
+      </div>
+      <div id="rankingHistContainer">
+        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
+      </div>
+    </div>
+
+    <!-- PAGE: HALL OF FAME -->
+    <div class="page" id="page-hall-of-fame">
+      <div class="page-header"><h2 class="page-title"><i class="fas fa-crown"></i> Hall da Fama</h2></div>
+      <p style="font-size:.83rem;color:var(--text-secondary);margin-bottom:12px">
+        Os campeões históricos de cada período. Seja o melhor e entre para a lenda! 👑
+      </p>
+      <div class="filter-bar" style="margin-bottom:.5rem">
+        <button class="filter-btn" data-hof-type="daily" onclick="setHofPageType('daily')"><i class="fas fa-sun"></i> Diário</button>
+        <button class="filter-btn" data-hof-type="weekly" onclick="setHofPageType('weekly')"><i class="fas fa-calendar-week"></i> Semanal</button>
+        <button class="filter-btn active" data-hof-type="monthly" onclick="setHofPageType('monthly')"><i class="fas fa-calendar-alt"></i> Mensal</button>
+      </div>
+      <div class="filter-bar" style="margin-bottom:1.2rem">
+        <button class="filter-btn active" data-hof-metric="coins" onclick="setHofPageMetric('coins')"><i class="fas fa-coins"></i> Moedas</button>
+        <button class="filter-btn" data-hof-metric="tokens" onclick="setHofPageMetric('tokens')"><i class="fas fa-gem"></i> Tokens</button>
+      </div>
+      <div id="hofContainer">
+        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
+      </div>
+    </div>
+
+    <!-- PAGE: GROUP MISSIONS -->
+    <div class="page" id="page-group-missions">
+      <div class="page-header">
+        <h2 class="page-title"><i class="fas fa-users"></i> Missões em Grupo</h2>
+        <button class="btn-primary" style="font-size:.8rem;padding:8px 14px" onclick="openCreateGroupMissionModal()">
+          <i class="fas fa-plus"></i> Nova Missão
+        </button>
+      </div>
+      <p style="font-size:.83rem;color:var(--text-secondary);margin-bottom:16px">
+        Une forças com outros jogadores para completar missões juntos!
+      </p>
+      <div id="groupMissionsContainer">
+        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
+      </div>
+    </div>
+
+    <!-- PAGE: FRIENDS -->
+    <div class="page" id="page-friends">
+      <div class="page-header"><h2 class="page-title"><i class="fas fa-user-friends"></i> Amigos</h2></div>
+      <p style="font-size:.83rem;color:var(--text-secondary);margin-bottom:12px">
+        Gerencie seus amigos, envie pedidos e encontre novos jogadores.
+      </p>
+      <div id="friendRequestsContainer" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px;margin-bottom:16px"></div>
+      <div id="friendsContainer">
+        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
       </div>
     </div>
   </main>
@@ -479,6 +569,40 @@
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('buyItemModal')">Cancelar</button>
         <button class="btn-primary" id="confirmBuyBtn" onclick="confirmBuyItem()"><i class="fas fa-check"></i> Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: CRIAR MISSÃO EM GRUPO                                 -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="createGroupMissionModal">
+    <div class="modal-box" style="max-width:480px">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fas fa-users"></i> Criar Missão em Grupo</h3>
+        <button class="modal-close" onclick="closeModal('createGroupMissionModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="form-group">
+        <label>Título da Missão *</label>
+        <input type="text" id="gmTitle" placeholder="Ex: Dungeon do Dragão em Grupo" maxlength="80" style="width:100%"/>
+      </div>
+      <div class="form-group">
+        <label>Descrição</label>
+        <textarea id="gmDescription" placeholder="Descreva o objetivo da missão…" style="width:100%;height:70px"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Máx. de Membros</label>
+        <select id="gmMaxMembers" style="width:100%">
+          <option value="2">2 jogadores</option>
+          <option value="3">3 jogadores</option>
+          <option value="4" selected>4 jogadores</option>
+          <option value="6">6 jogadores</option>
+          <option value="8">8 jogadores</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('createGroupMissionModal')">Cancelar</button>
+        <button class="btn-primary" onclick="confirmCreateGroupMission()"><i class="fas fa-plus"></i> Criar</button>
       </div>
     </div>
   </div>
