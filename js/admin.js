@@ -1,13 +1,10 @@
 // ============================================================
-// ADMIN.JS v8 — Toca das Marmotas - Painel Administrativo
-// Changelog v8:
-//  - Analytics Dashboard: painel com métricas gerais (usuários, quests,
-//    submissões, receita, usuários ativos nos últimos 7 dias)
-//  - Hall da Fama: visualização dos campeões históricos por período/métrica
-//  - Rankings: resetDailyRankingFull/Weekly/Monthly gravam Hall da Fama
-//    antes de zerar pontos (fallback client-side da procedure SQL)
-//  - Migração v10 corrigida: sem dependência do schema cron
-//    (erro "3F000: schema cron does not exist" resolvido)
+// ADMIN.JS v9 — Toca das Marmotas - Painel Administrativo
+// Changelog v9:
+//  - Missões em Grupo v2: admin cria/edita/deleta missões vinculadas a quests
+//    Usuários participam; admin aprova comprovante único (print com todos)
+//  - group_mission_proofs: painel de comprovantes pendentes no admin
+//  - Achievements baseados em ranking (hof_required, group_missions_required)
 // ============================================================
 import { requireAuth, showToast, renderUserInSidebar } from '../supabase/session-manager.js';
 import {
@@ -21,7 +18,10 @@ import {
   resetDailyRankingFull, resetWeeklyRankingFull, resetMonthlyRankingFull,
   getRankingHistory, getRankingResetStatus, getNextResetTimes,
   getHallOfFame, getAdminAnalytics,
-  getAllShopItems, createShopItem, updateShopItem, deleteShopItem, getAllPurchases
+  getAllShopItems, createShopItem, updateShopItem, deleteShopItem, getAllPurchases,
+  getGroupMissions, createGroupMission, updateGroupMission, deleteGroupMission,
+  getPendingGroupMissionProofs, approveGroupMissionProof, rejectGroupMissionProof,
+  postResetAwardHofBadges, brtPeriodLabel
 } from '../supabase/database.js';
 
 // ── Map type icons ─────────────────────────────────────────────
@@ -81,16 +81,17 @@ function switchTab(tab) {
   document.getElementById(`panel-${tab}`)?.classList.add('active');
   currentTab = tab;
   const titles = {
-    analytics:        'Dashboard Analytics',
-    submissions:      'Submissões',
-    'map-submissions':'Mapas Enviados',
-    quests:           'Quests',
-    maps:             'Mapas',
-    achievements:     'Conquistas',
-    users:            'Usuários',
-    shop:             'Loja',
-    rankings:         'Rankings',
-    halloffame:       'Hall da Fama'
+    analytics:          'Dashboard Analytics',
+    submissions:        'Submissões',
+    'map-submissions':  'Mapas Enviados',
+    quests:             'Quests',
+    maps:               'Mapas',
+    achievements:       'Conquistas',
+    users:              'Usuários',
+    shop:               'Loja',
+    rankings:           'Rankings',
+    halloffame:         'Hall da Fama',
+    'group-missions':   'Missões em Grupo'
   };
   const tt = document.getElementById('topbarTitle');
   if (tt) tt.textContent = `⚙️ ${titles[tab] || tab}`;
@@ -107,6 +108,7 @@ async function loadPanel(tab) {
   if (tab === 'shop')             await loadShopItems();
   if (tab === 'rankings')         await loadRankingHistory();
   if (tab === 'halloffame')       await loadHallOfFame();
+  if (tab === 'group-missions')   await loadGroupMissionsAdmin();
 }
 
 // ── ANALYTICS DASHBOARD ────────────────────────────────────────
@@ -934,6 +936,11 @@ function setupResetButtons() {
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
     try {
       await resetDailyRankingFull();
+      // Award HOF badges after reset
+      try {
+        const { brtPeriodLabel: bpl } = await import('../supabase/database.js');
+        await postResetAwardHofBadges('daily', brtPeriodLabel('daily'));
+      } catch(_) {}
       showToast('✅ Ranking diário resetado! Hall da Fama e histórico salvos.', 'success');
       await loadRankingHistory();
     } catch (err) { showToast(err.message, 'error'); }
@@ -946,6 +953,7 @@ function setupResetButtons() {
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
     try {
       await resetWeeklyRankingFull();
+      try { await postResetAwardHofBadges('weekly', brtPeriodLabel('weekly')); } catch(_) {}
       showToast('✅ Ranking semanal resetado! Hall da Fama e histórico salvos.', 'success');
       await loadRankingHistory();
     } catch (err) { showToast(err.message, 'error'); }
@@ -958,6 +966,7 @@ function setupResetButtons() {
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
     try {
       await resetMonthlyRankingFull();
+      try { await postResetAwardHofBadges('monthly', brtPeriodLabel('monthly')); } catch(_) {}
       showToast('✅ Ranking mensal resetado! Hall da Fama e histórico salvos.', 'success');
       await loadRankingHistory();
     } catch (err) { showToast(err.message, 'error'); }
@@ -1043,3 +1052,225 @@ function fmtDate(iso) {
 
 window.openModal  = (id) => document.getElementById(id)?.classList.add('open');
 window.closeModal = (id) => document.getElementById(id)?.classList.remove('open');
+
+// ── GROUP MISSIONS ADMIN ───────────────────────────────────────
+let _allQuestsCache = null;
+let _currentAdminAuth = null;
+
+// Guarda auth ao inicializar
+window.addEventListener('DOMContentLoaded', async () => {
+  const auth = await import('../supabase/session-manager.js').then(m => m.requireAuth(true)).catch(() => null);
+  if (auth) _currentAdminAuth = auth;
+});
+
+async function _getQuestsForSelect() {
+  if (!_allQuestsCache) _allQuestsCache = await getAllQuests().catch(() => []);
+  return _allQuestsCache;
+}
+
+async function loadGroupMissionsAdmin() {
+  const panel = document.getElementById('panel-group-missions');
+  if (!panel) return;
+
+  // Load both missions and pending proofs
+  const [missions, proofs] = await Promise.all([
+    getGroupMissions('all').catch(() => []),
+    getPendingGroupMissionProofs().catch(() => [])
+  ]);
+
+  const badge = document.getElementById('gmBadge');
+  if (badge) badge.textContent = proofs.length || '';
+
+  const statusColors = { open:'#22c55e', in_progress:'#f59e0b', completed:'#60a5fa', cancelled:'#ef4444' };
+  const statusLabels = { open:'Aberta', in_progress:'Em Progresso', completed:'Concluída', cancelled:'Cancelada' };
+
+  let html = `
+    <div class="page-header">
+      <h2 class="page-title"><i class="fas fa-users"></i> Missões em Grupo</h2>
+      <button class="btn-primary" onclick="openGroupMissionModal()"><i class="fas fa-plus"></i> Nova Missão</button>
+    </div>
+    <p style="color:var(--text-secondary);font-size:.83rem;margin-bottom:16px">
+      <i class="fas fa-info-circle" style="color:var(--gold)"></i>
+      Apenas o <strong>admin</strong> cria missões. Vincule-as a uma quest existente, defina o número mínimo de participantes
+      e as recompensas extras. Os jogadores participam, enviam um único comprovante (print com todos visíveis),
+      e você aprova para distribuir as recompensas.
+    </p>`;
+
+  // Pending proofs section
+  if (proofs.length) {
+    html += `<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:var(--radius-md);padding:16px;margin-bottom:20px">
+      <h3 style="font-family:var(--font-title);color:#f59e0b;margin-bottom:12px;font-size:.9rem">
+        <i class="fas fa-clock"></i> Comprovantes Pendentes (${proofs.length})
+      </h3>
+      <div style="display:flex;flex-direction:column;gap:10px">
+      ${proofs.map(p => {
+        const submitter = p.submitter?.profile_nickname || p.submitter?.nickname || '?';
+        const mission   = p.mission;
+        const memberCount = mission?.members?.length || 0;
+        return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start">
+          <div style="flex:1;min-width:200px">
+            <strong style="font-family:var(--font-title);color:var(--text-primary)">${mission?.title || 'Missão'}</strong><br>
+            <span style="font-size:.78rem;color:var(--text-muted)">
+              Enviado por <strong>${submitter}</strong> · ${memberCount}/${mission?.required_members||2} membros
+              · <a href="${p.proof_url}" target="_blank" style="color:var(--gold)"><i class="fas fa-external-link-alt"></i> Ver print</a>
+            </span>
+            ${p.note ? `<div style="font-size:.78rem;color:var(--text-secondary);margin-top:4px">Nota: ${p.note}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-approve" onclick="handleApproveGM(${p.id},'${(mission?.title||'').replace(/'/g,"\\'")}')">
+              <i class="fas fa-check"></i> Aprovar (+${mission?.reward_coins||0}🪙 +${mission?.reward_tokens||0}💎 +${mission?.reward_xp||0}XP)
+            </button>
+            <button class="btn-reject" onclick="handleRejectGM(${p.id})"><i class="fas fa-times"></i> Rejeitar</button>
+          </div>
+        </div>`;
+      }).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Missions list
+  if (!missions.length) {
+    html += `<div class="empty-state"><i class="fas fa-users" style="font-size:2rem;opacity:.3"></i><h3>Nenhuma missão criada</h3><p>Crie a primeira missão em grupo!</p></div>`;
+  } else {
+    html += `<div style="display:flex;flex-direction:column;gap:10px">` +
+      missions.map(m => {
+        const sc = statusColors[m.status] || '#888';
+        const sl = statusLabels[m.status] || m.status;
+        const memberCount = m.members?.length || 0;
+        const questTitle  = m.quest?.title || '—';
+        const questIcon   = m.quest?.icon_url || '📜';
+        const deadline    = m.ends_at ? new Date(m.ends_at).toLocaleDateString('pt-BR') : '—';
+        return `<div class="admin-item" style="flex-wrap:wrap;gap:10px">
+          <span style="font-size:1.4rem">${questIcon}</span>
+          <div style="flex:1;min-width:180px">
+            <div style="font-family:var(--font-title);color:var(--text-primary)">${m.title}</div>
+            <div style="font-size:.75rem;color:var(--text-secondary)">
+              Quest: <strong>${questTitle}</strong> · 
+              Min: ${m.required_members||2} · Max: ${m.max_members||10} · Membros: ${memberCount} ·
+              Prazo: ${deadline}
+            </div>
+            <div style="font-size:.75rem;color:var(--text-muted)">
+              Recompensas extra: +${m.reward_coins||0}🪙 +${m.reward_tokens||0}💎 +${m.reward_xp||0}XP
+            </div>
+          </div>
+          <span class="gm-status-badge" style="color:${sc};background:${sc}1a;padding:3px 10px;border-radius:10px;font-size:.75rem;font-weight:700">${sl}</span>
+          <div class="admin-item-actions">
+            <button class="btn-edit btn-sm" onclick="openGroupMissionModal('${m.id}')"><i class="fas fa-edit"></i></button>
+            <button class="btn-delete btn-sm" onclick="deleteGMConfirm('${m.id}')"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>`;
+      }).join('') + `</div>`;
+  }
+
+  panel.innerHTML = html;
+}
+
+// ── Group Mission Modal ─────────────────────────────────────────
+window.openGroupMissionModal = async function(missionId) {
+  const quests = await _getQuestsForSelect();
+  const questOptions = quests
+    .filter(q => q.is_active)
+    .map(q => `<option value="${q.id}">${q.icon_url||'📜'} ${q.title}</option>`)
+    .join('');
+
+  document.getElementById('gmAdminTitle').value       = '';
+  document.getElementById('gmAdminDescription').value = '';
+  document.getElementById('gmAdminQuestId').innerHTML = `<option value="">— Sem quest vinculada —</option>${questOptions}`;
+  document.getElementById('gmAdminRequired').value    = 2;
+  document.getElementById('gmAdminMax').value         = 10;
+  document.getElementById('gmAdminCoins').value       = 0;
+  document.getElementById('gmAdminTokens').value      = 0;
+  document.getElementById('gmAdminXp').value          = 0;
+  document.getElementById('gmAdminProofNote').value   = '';
+  document.getElementById('gmAdminDeadline').value    = '';
+  document.getElementById('gmAdminEditId').value      = '';
+  document.getElementById('gmAdminModalTitle').textContent = 'Nova Missão em Grupo';
+
+  if (missionId) {
+    const missions = await getGroupMissions('all').catch(() => []);
+    const m = missions.find(x => x.id === missionId);
+    if (m) {
+      document.getElementById('gmAdminEditId').value      = m.id;
+      document.getElementById('gmAdminTitle').value       = m.title;
+      document.getElementById('gmAdminDescription').value = m.description || '';
+      document.getElementById('gmAdminQuestId').value     = m.quest_id || '';
+      document.getElementById('gmAdminRequired').value    = m.required_members || 2;
+      document.getElementById('gmAdminMax').value         = m.max_members || 10;
+      document.getElementById('gmAdminCoins').value       = m.reward_coins || 0;
+      document.getElementById('gmAdminTokens').value      = m.reward_tokens || 0;
+      document.getElementById('gmAdminXp').value          = m.reward_xp || 0;
+      document.getElementById('gmAdminProofNote').value   = m.proof_note || '';
+      if (m.ends_at) {
+        document.getElementById('gmAdminDeadline').value  = m.ends_at.slice(0, 16);
+      }
+      document.getElementById('gmAdminModalTitle').textContent = 'Editar Missão em Grupo';
+    }
+  }
+  openModal('groupMissionAdminModal');
+};
+
+window.saveGroupMission = async function() {
+  const editId  = document.getElementById('gmAdminEditId')?.value;
+  const title   = document.getElementById('gmAdminTitle')?.value?.trim();
+  if (!title) { showToast('Título é obrigatório', 'warning'); return; }
+
+  // Need admin's user ID
+  const { sb } = await import('../supabase/client.js');
+  const { data: { user } } = await sb.auth.getUser();
+
+  const data = {
+    title,
+    description:      document.getElementById('gmAdminDescription')?.value?.trim() || null,
+    quest_id:         document.getElementById('gmAdminQuestId')?.value || null,
+    creator_id:       user.id,
+    required_members: parseInt(document.getElementById('gmAdminRequired')?.value) || 2,
+    max_members:      parseInt(document.getElementById('gmAdminMax')?.value) || 10,
+    reward_coins:     parseInt(document.getElementById('gmAdminCoins')?.value) || 0,
+    reward_tokens:    parseInt(document.getElementById('gmAdminTokens')?.value) || 0,
+    reward_xp:        parseInt(document.getElementById('gmAdminXp')?.value) || 0,
+    proof_note:       document.getElementById('gmAdminProofNote')?.value?.trim() || null,
+    ends_at:          document.getElementById('gmAdminDeadline')?.value || null,
+    status:           'open'
+  };
+
+  try {
+    if (editId) {
+      delete data.creator_id; delete data.status;
+      await updateGroupMission(editId, data);
+    } else {
+      await createGroupMission(data);
+    }
+    closeModal('groupMissionAdminModal');
+    showToast(editId ? 'Missão atualizada!' : 'Missão criada!', 'success');
+    await loadGroupMissionsAdmin();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+window.deleteGMConfirm = async function(id) {
+  if (!confirm('Deletar esta missão em grupo? Todos os membros e comprovantes serão removidos.')) return;
+  try {
+    await deleteGroupMission(id);
+    showToast('Missão deletada.', 'info');
+    await loadGroupMissionsAdmin();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+window.handleApproveGM = async function(proofId, missionTitle) {
+  const note = prompt(`Aprovar comprovante de "${missionTitle}"?\nNota do admin (opcional):`) ?? '';
+  try {
+    const { sb } = await import('../supabase/client.js');
+    const { data: { user } } = await sb.auth.getUser();
+    const result = await approveGroupMissionProof(proofId, user.id, note);
+    showToast(`✅ Missão aprovada! ${result.rewarded_members} membros recompensados.`, 'success');
+    await loadGroupMissionsAdmin();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+window.handleRejectGM = async function(proofId) {
+  const note = prompt('Motivo da rejeição (opcional):') ?? '';
+  try {
+    await rejectGroupMissionProof(proofId, note);
+    showToast('Comprovante rejeitado.', 'info');
+    await loadGroupMissionsAdmin();
+  } catch (err) { showToast(err.message, 'error'); }
+};

@@ -25,9 +25,9 @@ import {
   getShopFavorites, addShopFavorite, removeShopFavorite,
   incrementMapView, checkAndAutoReset,
   getRankingHistory, getHallOfFame,
-  getGroupMissions, createGroupMission, joinGroupMission, leaveGroupMission,
+  getGroupMissions, joinGroupMission, leaveGroupMission, submitGroupMissionProof,
   getFriends, getFriendRequests, sendFriendRequest, acceptFriendRequest, removeFriend,
-  updatePublicProfile
+  updatePublicProfile, searchPublicUsers, getFriendshipStatus
 } from '../supabase/database.js';
 
 // ── Estado ───────────────────────────────────────────────────
@@ -941,10 +941,24 @@ async function loadProfile() {
 
     // URL pública do perfil
     const profileUrlEl = document.getElementById('profilePublicUrl');
+    const profileUrlRow = document.getElementById('profileUrlRow');
     if (profileUrlEl && p.public_profile && p.nickname) {
-      const base = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '/');
-      profileUrlEl.textContent = `${base}profile.html?u=${p.nickname}`;
-      profileUrlEl.closest?.('[id="profileUrlRow"]')?.style?.setProperty('display', 'flex');
+      const base = window.location.hostname.includes('github.io')
+        ? 'https://kayhamcristoffer.github.io/marmota-rpg-2.io'
+        : window.location.origin;
+      const url = `${base}/profile.html?u=${p.nickname}`;
+      profileUrlEl.textContent = url;
+      profileUrlEl.href = url;
+      if (profileUrlRow) profileUrlRow.style.display = 'flex';
+      // Wire copy button
+      const copyBtn = document.getElementById('copyProfileUrlBtn');
+      if (copyBtn) {
+        copyBtn.onclick = () => {
+          navigator.clipboard.writeText(url).then(() => showToast('Link copiado!', 'success'));
+        };
+      }
+    } else if (profileUrlRow) {
+      profileUrlRow.style.display = 'none';
     }
   } catch (err) {
     showToast('Erro ao carregar perfil: ' + err.message, 'error');
@@ -1372,12 +1386,26 @@ window.setHofPageMetric = function(m) {
 
 // ─── GROUP MISSIONS PAGE ──────────────────────────────────────
 
+let currentGmFilter = 'all';
+
+window.setGmFilter = function(f) {
+  currentGmFilter = f;
+  document.querySelectorAll('#page-group-missions .filter-btn[data-gm-filter]')
+    .forEach(b => b.classList.toggle('active', b.dataset.gmFilter === f));
+  loadGroupMissionsPage();
+};
+
 async function loadGroupMissionsPage() {
+  // Show admin button only for admins
+  const adminBtn = document.getElementById('btnNewGroupMission');
+  if (adminBtn) adminBtn.style.display = isAdmin(currentUser, currentProfile) ? 'flex' : 'none';
+
   const container = document.getElementById('groupMissionsContainer');
   if (!container) return;
   container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando missões…</h3></div>';
   try {
-    const data = await getGroupMissions('all');
+    const data = await getGroupMissions(currentGmFilter === 'all' ? null : currentGmFilter);
+    window._gmCache = data; // cache for openGmProofModal
     renderGroupMissions(data, container);
   } catch (e) {
     container.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${e.message}</h3></div>`;
@@ -1388,11 +1416,11 @@ function renderGroupMissions(missions, container) {
   if (!missions?.length) {
     container.innerHTML = `<div class="empty-state">
       <i class="fas fa-users" style="font-size:2rem;opacity:.3;margin-bottom:8px"></i>
-      <h3>Nenhuma missão em grupo</h3>
-      <p style="font-size:.82rem;color:var(--text-muted)">Crie a primeira missão em grupo e convide seus amigos!</p>
-      <button class="btn-primary" style="margin-top:12px" onclick="openCreateGroupMissionModal()">
-        <i class="fas fa-plus"></i> Criar Missão em Grupo
-      </button>
+      <h3>Nenhuma missão em grupo disponível</h3>
+      <p style="font-size:.82rem;color:var(--text-muted)">
+        O admin ainda não criou missões em grupo.<br>
+        Verifique novamente em breve!
+      </p>
     </div>`;
     return;
   }
@@ -1400,44 +1428,120 @@ function renderGroupMissions(missions, container) {
   const statusColors = { open:'#22c55e', in_progress:'#f59e0b', completed:'#60a5fa', cancelled:'#ef4444' };
   const statusLabels = { open:'Aberta', in_progress:'Em Progresso', completed:'Concluída', cancelled:'Cancelada' };
 
-  container.innerHTML = missions.map(m => {
-    const creator   = m.creator?.profile_nickname || m.creator?.nickname || '?';
+  container.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px">` +
+    missions.map(m => {
+    const creator    = m.creator?.profile_nickname || m.creator?.nickname || '?';
     const memberCount = m.members?.length || 0;
-    const isMember  = m.members?.some(mb => mb.user_id === currentUser?.id);
+    const isMember   = m.members?.some(mb => mb.user_id === currentUser?.id);
     const statusColor = statusColors[m.status] || '#888';
     const statusLabel = statusLabels[m.status] || m.status;
+    const deadline   = m.ends_at ? new Date(m.ends_at).toLocaleDateString('pt-BR',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : null;
+    const hasProof   = m.proofs?.some(p => p.status === 'pending' || p.status === 'approved');
+    const canSubmitProof = isMember && m.status === 'open' && !hasProof;
+    const pendingProof   = m.proofs?.find(p => p.status === 'pending');
+    const approvedProof  = m.proofs?.find(p => p.status === 'approved');
+    const reqCount   = m.required_members || 2;
+
+    // Reward badges
+    const rewardHtml = []
+      .concat(m.reward_coins  ? [`<span class="gm-reward-badge coins"><i class="fas fa-coins"></i> +${m.reward_coins}</span>`] : [])
+      .concat(m.reward_tokens ? [`<span class="gm-reward-badge tokens"><i class="fas fa-gem"></i> +${m.reward_tokens}</span>`] : [])
+      .concat(m.reward_xp    ? [`<span class="gm-reward-badge xp"><i class="fas fa-star"></i> +${m.reward_xp} XP</span>`] : [])
+      .join('');
+
     return `<div class="group-mission-card">
       <div class="gm-header">
-        <span class="gm-title">${m.title}</span>
-        <span class="gm-status" style="color:${statusColor}">${statusLabel}</span>
+        <span class="gm-title">${m.quest?.icon_url || '🎯'} ${m.title}</span>
+        <span class="gm-status" style="color:${statusColor};background:${statusColor}1a;padding:2px 10px;border-radius:10px;font-size:.73rem;font-weight:700">${statusLabel}</span>
       </div>
       ${m.description ? `<p class="gm-desc">${m.description}</p>` : ''}
+      ${m.proof_note ? `<div class="gm-proof-hint"><i class="fas fa-camera"></i> ${m.proof_note}</div>` : ''}
       <div class="gm-meta">
         <span><i class="fas fa-user" style="opacity:.5"></i> ${creator}</span>
-        <span><i class="fas fa-users" style="opacity:.5"></i> ${memberCount}/${m.max_members || 4} membros</span>
+        <span><i class="fas fa-users" style="opacity:.5"></i> ${memberCount}/${m.max_members||10} · mín: ${reqCount}</span>
         ${m.quest ? `<span><i class="fas fa-scroll" style="opacity:.5"></i> ${m.quest.title}</span>` : ''}
+        ${deadline ? `<span><i class="fas fa-clock" style="opacity:.5;color:var(--orange)"></i> ${deadline}</span>` : ''}
       </div>
+      ${rewardHtml ? `<div class="gm-rewards">${rewardHtml}</div>` : ''}
       <div class="gm-members">
-        ${(m.members||[]).slice(0,6).map(mb => {
-          const n = mb.user?.profile_nickname || mb.user?.nickname || '?';
+        ${(m.members||[]).slice(0,8).map(mb => {
+          const n   = mb.user?.profile_nickname || mb.user?.nickname || '?';
           const ico = mb.user?.icon_url;
-          return ico && ico.length <= 8 && !ico.startsWith('http')
-            ? `<span class="gm-member-avatar" title="${n}">${ico}</span>`
-            : `<span class="gm-member-avatar gm-member-initial" title="${n}">${n[0].toUpperCase()}</span>`;
+          const uid = mb.user?.id;
+          return `<a href="profile.html?u=${mb.user?.nickname||''}" title="${n}" class="gm-member-link">
+            ${ico && ico.length <= 8 && !ico.startsWith('http')
+              ? `<span class="gm-member-avatar">${ico}</span>`
+              : `<span class="gm-member-avatar gm-member-initial">${n[0].toUpperCase()}</span>`
+            }</a>`;
         }).join('')}
-        ${(m.members?.length||0) > 6 ? `<span class="gm-member-avatar gm-member-more">+${m.members.length-6}</span>` : ''}
+        ${(m.members?.length||0) > 8 ? `<span class="gm-member-avatar gm-member-more">+${m.members.length-8}</span>` : ''}
       </div>
-      ${m.status === 'open' && !isMember && currentUser ? `
-        <button class="btn-primary" style="width:100%;font-size:.82rem;padding:8px" onclick="handleJoinMission('${m.id}')">
-          <i class="fas fa-user-plus"></i> Entrar no Grupo
-        </button>` : ''}
-      ${isMember && m.status !== 'completed' ? `
-        <button class="btn-secondary" style="width:100%;font-size:.82rem;padding:8px;color:var(--red-text,#ef4444)" onclick="handleLeaveMission('${m.id}')">
-          <i class="fas fa-sign-out-alt"></i> Sair do Grupo
-        </button>` : ''}
+      <div class="gm-actions">
+        ${m.status === 'open' && !isMember ? `
+          <button class="btn-primary gm-btn" onclick="handleJoinMission('${m.id}')">
+            <i class="fas fa-user-plus"></i> Participar
+          </button>` : ''}
+        ${isMember && m.status === 'open' && !hasProof ? `
+          <button class="btn-primary gm-btn" onclick="openGmProofModal('${m.id}')">
+            <i class="fas fa-camera"></i> Enviar Comprovante
+          </button>` : ''}
+        ${pendingProof ? `
+          <div class="gm-proof-status pending">
+            <i class="fas fa-clock"></i> Comprovante aguardando revisão
+          </div>` : ''}
+        ${approvedProof ? `
+          <div class="gm-proof-status approved">
+            <i class="fas fa-check-circle"></i> Comprovante aprovado! Recompensas distribuídas.
+          </div>` : ''}
+        ${isMember && m.status === 'open' ? `
+          <button class="btn-secondary gm-btn" style="color:var(--text-muted)" onclick="handleLeaveMission('${m.id}')">
+            <i class="fas fa-sign-out-alt"></i> Sair
+          </button>` : ''}
+      </div>
     </div>`;
-  }).join('');
+  }).join('') + `</div>`;
 }
+
+window.openGmProofModal = function(missionId) {
+  const missions = (window._gmCache || []);
+  const m = missions.find(x => x.id === missionId);
+  document.getElementById('gmProofMissionId').value = missionId;
+  const info = document.getElementById('gmProofMissionInfo');
+  if (info && m) {
+    const reqCount = m.required_members || 2;
+    const members  = (m.members||[]).map(mb => mb.user?.profile_nickname || mb.user?.nickname || '?').join(', ');
+    info.innerHTML = `
+      <strong style="font-family:var(--font-title);color:var(--text-primary)">${m.title}</strong><br>
+      <span>Participantes atuais (${m.members?.length||0}/${reqCount} mín.): ${members || '—'}</span>
+      ${m.proof_note ? `<div style="margin-top:6px"><i class="fas fa-camera" style="color:var(--gold)"></i> <em>${m.proof_note}</em></div>` : ''}`;
+  }
+  const urlIn = document.getElementById('gmProofUrl');
+  const noteIn = document.getElementById('gmProofNote');
+  if (urlIn)  urlIn.value  = '';
+  if (noteIn) noteIn.value = '';
+  openModal('gmProofModal');
+};
+
+window.confirmGmProofSubmit = async function() {
+  const missionId = document.getElementById('gmProofMissionId')?.value;
+  const proofUrl  = document.getElementById('gmProofUrl')?.value?.trim();
+  const note      = document.getElementById('gmProofNote')?.value?.trim();
+  if (!proofUrl) { showToast('Cole o link do screenshot', 'warning'); return; }
+  if (!proofUrl.startsWith('http')) { showToast('URL inválida — use um link completo (https://…)', 'warning'); return; }
+  const btn = document.getElementById('gmProofSubmitBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enviando…'; }
+  showLoading('Enviando comprovante…');
+  try {
+    await submitGroupMissionProof(missionId, currentUser.id, proofUrl, note || '');
+    closeModal('gmProofModal');
+    showToast('✅ Comprovante enviado! Aguarde a revisão do admin.', 'success');
+    loadGroupMissionsPage();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Enviar Comprovante'; }
+    hideLoading();
+  }
+};
 
 window.handleJoinMission = async function(missionId) {
   showLoading('Entrando na missão…');
@@ -1455,25 +1559,6 @@ window.handleLeaveMission = async function(missionId) {
   try {
     await leaveGroupMission(missionId, currentUser.id);
     showToast('Você saiu do grupo.', 'info');
-    loadGroupMissionsPage();
-  } catch (e) { showToast(e.message, 'error'); }
-  finally { hideLoading(); }
-};
-
-window.openCreateGroupMissionModal = function() {
-  openModal('createGroupMissionModal');
-};
-
-window.confirmCreateGroupMission = async function() {
-  const title = document.getElementById('gmTitle')?.value?.trim();
-  const desc  = document.getElementById('gmDescription')?.value?.trim();
-  const max   = parseInt(document.getElementById('gmMaxMembers')?.value || '4');
-  if (!title) { showToast('Título é obrigatório', 'warning'); return; }
-  showLoading('Criando missão…');
-  try {
-    await createGroupMission({ title, description: desc, creator_id: currentUser.id, max_members: max });
-    closeModal('createGroupMissionModal');
-    showToast('✅ Missão em grupo criada!', 'success');
     loadGroupMissionsPage();
   } catch (e) { showToast(e.message, 'error'); }
   finally { hideLoading(); }
@@ -1617,13 +1702,211 @@ window.handleAddFriend = async function(targetId, name) {
   finally { hideLoading(); }
 };
 
+// ─── FRIENDS PAGE – improved ──────────────────────────────────
+
+function _renderFriendAvatar(u, size = 38) {
+  const name = u?.profile_nickname || u?.nickname || '?';
+  const ico  = u?.icon_url;
+  const nick = u?.nickname || '';
+  const pub  = u?.public_profile;
+  const wrapper = pub ? `href="profile.html?u=${nick}"` : '';
+  const tag     = pub ? 'a' : 'span';
+  const style   = `width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:${size > 36 ? '1.4rem' : '1.1rem'};text-decoration:none;`;
+  if (ico && ico.length <= 8 && !ico.startsWith('http')) {
+    return `<${tag} ${wrapper} style="${style}">${ico}</${tag}>`;
+  }
+  return `<${tag} ${wrapper} style="${style};background:var(--bg-input);border:1px solid var(--border);font-weight:700;font-size:${size > 36 ? '.9rem' : '.75rem'};color:var(--gold);">${(name[0]||'?').toUpperCase()}</${tag}>`;
+}
+
+async function loadFriendsPage() {
+  const container    = document.getElementById('friendsContainer');
+  const reqContainer = document.getElementById('friendRequestsContainer');
+  if (!container) return;
+
+  container.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando amigos…</h3></div>';
+
+  try {
+    const [friends, requests] = await Promise.all([
+      getFriends(currentUser.id).catch(() => []),
+      getFriendRequests(currentUser.id).catch(() => [])
+    ]);
+
+    // ── Pedidos pendentes ──────────────────────────────────
+    if (reqContainer) {
+      if (requests.length) {
+        reqContainer.style.display = 'block';
+        reqContainer.innerHTML =
+          `<div class="friends-requests-header"><i class="fas fa-bell"></i> Pedidos de amizade (${requests.length})</div>` +
+          requests.map(r => {
+            const u    = r.req;
+            const name = u?.profile_nickname || u?.nickname || '?';
+            return `<div class="friend-row">
+              ${_renderFriendAvatar(u)}
+              <div class="friend-info">
+                <span class="friend-name">${name}</span>
+                <span class="friend-meta">Nv.${u?.level||1}</span>
+              </div>
+              ${u?.public_profile ? `<a href="profile.html?u=${u.nickname}" target="_blank" class="btn-secondary" style="font-size:.75rem;padding:5px 9px" title="Ver perfil"><i class="fas fa-user"></i></a>` : ''}
+              <button class="btn-primary" style="font-size:.8rem;padding:6px 12px" onclick="handleAcceptFriend('${u?.id}')">
+                <i class="fas fa-check"></i> Aceitar
+              </button>
+            </div>`;
+          }).join('');
+      } else {
+        reqContainer.style.display = 'none';
+      }
+    }
+
+    // ── Barra de busca ─────────────────────────────────────
+    const searchBar = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="text" id="friendSearchInput" placeholder="Buscar jogador por nickname…"
+        style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')handleSearchFriend()"/>
+      <button class="btn-primary" style="font-size:.82rem" onclick="handleSearchFriend()">
+        <i class="fas fa-search"></i> Buscar
+      </button>
+    </div>
+    <div id="friendSearchResults" style="margin-bottom:12px"></div>`;
+
+    // ── Lista de amigos ────────────────────────────────────
+    if (!friends.length) {
+      container.innerHTML = `${searchBar}<div class="empty-state" style="padding:32px 0">
+        <i class="fas fa-user-friends" style="font-size:2rem;opacity:.3;margin-bottom:8px"></i>
+        <h3>Nenhum amigo ainda</h3>
+        <p style="font-size:.82rem;color:var(--text-muted)">Encontre outros jogadores acima!</p>
+      </div>`;
+      return;
+    }
+
+    container.innerHTML = searchBar +
+      `<div style="display:flex;flex-direction:column;gap:8px">` +
+      friends.map(f => {
+        const u    = f.friend;
+        const name = u?.profile_nickname || u?.nickname || '?';
+        return `<div class="friend-row">
+          ${_renderFriendAvatar(u)}
+          <div class="friend-info">
+            <span class="friend-name">${name}</span>
+            <span class="friend-meta">Nv.${u?.level||1}</span>
+          </div>
+          ${u?.public_profile ? `<a href="profile.html?u=${u.nickname}" target="_blank"
+              class="btn-secondary" style="font-size:.75rem;padding:5px 9px" title="Ver perfil público">
+              <i class="fas fa-user"></i></a>` : ''}
+          <button class="btn-icon" title="Compartilhar perfil" onclick="openShareModal('${u?.nickname||''}','${name}')">
+            <i class="fas fa-share-alt"></i>
+          </button>
+          <button class="btn-secondary" style="font-size:.78rem;padding:5px 10px;color:var(--text-muted)"
+            onclick="handleRemoveFriend('${u?.id}','${name}')" title="Remover amigo">
+            <i class="fas fa-user-minus"></i>
+          </button>
+        </div>`;
+      }).join('') + `</div>`;
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle"></i><h3>Erro: ${e.message}</h3></div>`;
+  }
+}
+
+window.handleAcceptFriend = async function(requesterId) {
+  showLoading('Aceitando pedido…');
+  try {
+    await acceptFriendRequest(currentUser.id, requesterId);
+    showToast('✅ Amizade aceita!', 'success');
+    loadFriendsPage();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { hideLoading(); }
+};
+
+window.handleRemoveFriend = async function(otherId, name) {
+  if (!confirm(`Remover ${name} dos amigos?`)) return;
+  showLoading('Removendo amigo…');
+  try {
+    await removeFriend(currentUser.id, otherId);
+    showToast(`${name} removido dos amigos.`, 'info');
+    loadFriendsPage();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { hideLoading(); }
+};
+
+window.handleSearchFriend = async function() {
+  const q         = document.getElementById('friendSearchInput')?.value?.trim();
+  const resultsEl = document.getElementById('friendSearchResults');
+  if (!resultsEl) return;
+  if (!q) { resultsEl.innerHTML = ''; return; }
+  resultsEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  try {
+    const users = await searchPublicUsers(q);
+    const filtered = users.filter(u => u.id !== currentUser?.id);
+    if (!filtered.length) {
+      resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted)">Nenhum jogador público encontrado.</p>';
+      return;
+    }
+    resultsEl.innerHTML = filtered.map(u => {
+      const name = u.profile_nickname || u.nickname || '?';
+      return `<div class="friend-row" style="padding:8px">
+        ${_renderFriendAvatar(u, 32)}
+        <div class="friend-info">
+          <span class="friend-name" style="font-size:.85rem">${name}</span>
+          <span class="friend-meta">Nv.${u.level||1}</span>
+        </div>
+        <a href="profile.html?u=${u.nickname||''}" target="_blank"
+           class="btn-secondary" style="font-size:.75rem;padding:5px 9px" title="Ver perfil">
+          <i class="fas fa-user"></i>
+        </a>
+        <button class="btn-primary" style="font-size:.78rem;padding:5px 10px"
+          onclick="handleAddFriend('${u.id}','${name.replace(/'/g,"\\'")}')">
+          <i class="fas fa-user-plus"></i> Adicionar
+        </button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    resultsEl.innerHTML = `<p style="color:var(--text-muted);font-size:.82rem">${e.message}</p>`;
+  }
+};
+
+// ─── SOCIAL SHARING ───────────────────────────────────────────
+
+window.openShareModal = function(nickname, displayName) {
+  const base     = window.location.hostname.includes('github.io')
+    ? 'https://kayhamcristoffer.github.io/marmota-rpg-2.io'
+    : window.location.origin;
+  const profileUrl = nickname ? `${base}/profile.html?u=${encodeURIComponent(nickname)}` : null;
+  const body = document.getElementById('shareModalBody');
+  if (!body) return;
+
+  body.innerHTML = `
+    <p style="font-size:.85rem;color:var(--text-secondary)">Compartilhe o perfil de <strong>${displayName}</strong>:</p>
+    ${profileUrl ? `
+    <div style="display:flex;gap:8px;align-items:center;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:.82rem;word-break:break-all;color:var(--text-secondary)">
+      <span style="flex:1">${profileUrl}</span>
+      <button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;flex-shrink:0"
+        onclick="navigator.clipboard.writeText('${profileUrl}');showToast('Link copiado!','success')">
+        <i class="fas fa-copy"></i> Copiar
+      </button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent('Confira o perfil de '+displayName+' no Toca das Marmotas!')}&url=${encodeURIComponent(profileUrl)}"
+         target="_blank" class="btn-secondary" style="font-size:.82rem;display:flex;align-items:center;gap:6px;text-decoration:none">
+        <i class="fab fa-twitter" style="color:#1da1f2"></i> Twitter/X
+      </a>
+      <a href="https://wa.me/?text=${encodeURIComponent('Confira o perfil de '+displayName+' no Toca das Marmotas! '+profileUrl)}"
+         target="_blank" class="btn-secondary" style="font-size:.82rem;display:flex;align-items:center;gap:6px;text-decoration:none">
+        <i class="fab fa-whatsapp" style="color:#25d366"></i> WhatsApp
+      </a>
+    </div>` : `<p style="font-size:.82rem;color:var(--text-muted)">Este jogador ainda não tem perfil público.</p>`}
+  `;
+  openModal('shareModal');
+};
+
+window.openMyShareModal = function() {
+  const p = currentProfile;
+  if (!p) return;
+  const nick = p.nickname || '';
+  openShareModal(p.public_profile ? nick : '', p.profile_nickname || p.nickname || 'Meu Perfil');
+};
+
 // ─── PUBLIC PROFILE in profile page ──────────────────────────
-// O toggle de perfil público é salvo junto com o botão Salvar Perfil.
-// Esta função apenas configura feedback visual imediato.
 function setupPublicProfileToggle() {
   const toggle = document.getElementById('publicProfileToggle');
   if (!toggle) return;
-  // Feedback visual: não salva imediatamente — salva ao clicar em "Salvar"
   toggle.addEventListener('change', () => {
     const hint = document.getElementById('publicProfileHint');
     if (hint) hint.textContent = toggle.checked
