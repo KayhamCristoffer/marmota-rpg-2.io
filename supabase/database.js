@@ -91,9 +91,11 @@ export async function signOut() {
 }
 
 export async function resetPassword(email) {
-  const redirectTo = window.location.hostname.includes('github.io')
-    ? 'https://kayhamcristoffer.github.io/marmota-rpg-2.io/index.html'
-    : `${window.location.origin}/index.html`;
+  // Redireciona para change-password.html após clicar no link do e-mail
+  const base = window.location.hostname.includes('github.io')
+    ? 'https://kayhamcristoffer.github.io/marmota-rpg-2.io'
+    : window.location.origin;
+  const redirectTo = `${base}/change-password.html`;
   const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) throw error;
 }
@@ -652,7 +654,7 @@ export async function checkAndGrantAchievements(userId) {
 
 // Gera label de período para o histórico, no formato:
 // "DD/MM/AAAA [HH:MM] até DD/MM/AAAA [HH:MM] BRT"
-function brtPeriodLabel(type) {
+export function brtPeriodLabel(type) {
   const range = getPeriodRange(type);
   if (!range) {
     const fallback = new Date();
@@ -1200,63 +1202,128 @@ export async function getFriendshipStatus(myId, otherId) {
   } catch (e) { return null; }
 }
 
-// ─── MISSÕES EM GRUPO ─────────────────────────────────────────
+// ─── MISSÕES EM GRUPO v2 (admin cria, usuários participam) ────
 
 export async function getGroupMissions(statusFilter = 'open') {
   try {
     let q = sb.from('group_missions')
       .select(`*, creator:creator_id(id, nickname, profile_nickname, icon_url),
-               quest:quest_id(id, title, type, reward_coins, reward_xp),
+               quest:quest_id(id, title, type, reward_coins, reward_xp, icon_url),
                members:group_mission_members(user_id, role,
-                 user:user_id(id, nickname, profile_nickname, icon_url))`)
+                 user:user_id(id, nickname, profile_nickname, icon_url)),
+               proofs:group_mission_proofs(id, status, submitted_at,
+                 submitted_by, proof_url)`)
       .order('created_at', { ascending: false });
     if (statusFilter && statusFilter !== 'all') q = q.eq('status', statusFilter);
-    const { data, error } = await q.limit(50);
+    const { data, error } = await q.limit(100);
     if (error) throw error;
     return data ?? [];
   } catch (e) {
-    console.warn('getGroupMissions: tabela não encontrada. Execute migração v11.');
+    console.warn('getGroupMissions: tabela não encontrada. Execute migração v12.', e.message);
     return [];
   }
 }
 
-export async function createGroupMission(data) {
+/** Admin cria missão em grupo vinculada a uma quest */
+export async function createGroupMission(missionData) {
   const { data: result, error } = await sb
     .from('group_missions')
-    .insert(data)
+    .insert(missionData)
     .select()
     .single();
   if (error) throw error;
-  // Auto-ingressa o criador como líder
-  await sb.from('group_mission_members').insert({
-    mission_id: result.id, user_id: data.creator_id, role: 'leader'
-  });
   return result;
 }
 
+export async function updateGroupMission(id, updates) {
+  const { data, error } = await sb
+    .from('group_missions')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteGroupMission(id) {
+  const { error } = await sb.from('group_missions').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Usuário entra na missão como membro */
 export async function joinGroupMission(missionId, userId) {
-  // Verifica capacidade
   const { data: m } = await sb.from('group_missions')
     .select('max_members, status')
     .eq('id', missionId).single();
-  if (!m || m.status !== 'open') throw new Error('Missão não está aberta');
+  if (!m || m.status === 'cancelled' || m.status === 'completed')
+    throw new Error('Missão não está disponível para entrada');
   const { count } = await sb.from('group_mission_members')
     .select('*', { count: 'exact', head: true })
     .eq('mission_id', missionId);
-  if (count >= m.max_members) throw new Error('Grupo cheio!');
+  if ((count ?? 0) >= (m.max_members ?? 10)) throw new Error('Grupo cheio!');
   const { error } = await sb.from('group_mission_members')
     .insert({ mission_id: missionId, user_id: userId, role: 'member' });
   if (error) throw error;
-  // Atualiza status se ficou cheio
-  if (count + 1 >= m.max_members) {
-    await sb.from('group_missions').update({ status: 'in_progress' }).eq('id', missionId);
-  }
 }
 
 export async function leaveGroupMission(missionId, userId) {
   const { error } = await sb.from('group_mission_members')
     .delete().eq('mission_id', missionId).eq('user_id', userId);
   if (error) throw error;
+}
+
+/** Membro envia comprovante (único print com todos os jogadores visíveis) */
+export async function submitGroupMissionProof(missionId, userId, proofUrl, note = '') {
+  // Verifica se já há um comprovante pendente ou aprovado
+  const { data: existing } = await sb.from('group_mission_proofs')
+    .select('id, status')
+    .eq('mission_id', missionId)
+    .in('status', ['pending', 'approved'])
+    .maybeSingle();
+  if (existing) throw new Error(
+    existing.status === 'approved'
+      ? 'Esta missão já foi aprovada!'
+      : 'Já existe um comprovante pendente de revisão.'
+  );
+  const { data, error } = await sb.from('group_mission_proofs')
+    .insert({ mission_id: missionId, submitted_by: userId, proof_url: proofUrl, note })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
+/** Admin aprova o comprovante via RPC (distribui recompensas) */
+export async function approveGroupMissionProof(proofId, adminId, adminNote = '') {
+  const { data, error } = await sb.rpc('approve_group_mission_proof', {
+    p_proof_id:   proofId,
+    p_admin_id:   adminId,
+    p_admin_note: adminNote
+  });
+  if (error) throw error;
+  if (!data?.ok) throw new Error(data?.error || 'Erro ao aprovar missão');
+  return data;
+}
+
+export async function rejectGroupMissionProof(proofId, adminNote = '') {
+  const { error } = await sb.from('group_mission_proofs')
+    .update({ status: 'rejected', admin_note: adminNote, reviewed_at: new Date().toISOString() })
+    .eq('id', proofId);
+  if (error) throw error;
+}
+
+/** Pega todos os comprovantes pendentes (para admin) */
+export async function getPendingGroupMissionProofs() {
+  try {
+    const { data, error } = await sb.from('group_mission_proofs')
+      .select(`*, mission:mission_id(id, title, required_members, reward_coins, reward_tokens, reward_xp,
+                members:group_mission_members(user_id, user:user_id(nickname, profile_nickname))),
+               submitter:submitted_by(nickname, profile_nickname, icon_url)`)
+      .eq('status', 'pending')
+      .order('submitted_at', { ascending: true });
+    if (error) throw error;
+    return data ?? [];
+  } catch (e) { return []; }
 }
 
 // ─── MODERAÇÃO DE CONTEÚDO ────────────────────────────────────
@@ -1384,5 +1451,79 @@ export async function getAdminAnalytics() {
   } catch (e) {
     console.error('getAdminAnalytics:', e);
     return null;
+  }
+}
+
+// ─── CONQUISTAS BASEADAS EM RANKING (Hall da Fama) ─────────────
+
+/**
+ * Verifica se o usuário entrou no Hall da Fama e concede o badge correspondente.
+ * Chamado automaticamente após um reset de ranking que registre um campeão.
+ * @param {string} userId
+ * @param {string} scoreType 'daily'|'weekly'|'monthly'
+ */
+export async function checkAndAwardHofBadge(userId, scoreType = 'monthly') {
+  try {
+    // Busca conquista do tipo Hall da Fama para o período
+    const { data: achievements } = await sb.from('achievements')
+      .select('id, title, hof_required')
+      .eq('hof_required', scoreType)
+      .limit(5);
+    if (!achievements?.length) return;
+
+    for (const ach of achievements) {
+      // Verifica se já possui o badge
+      const { data: existing } = await sb.from('user_badges')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('achievement_id', ach.id)
+        .maybeSingle();
+      if (existing) continue;
+
+      // Concede o badge
+      await sb.from('user_badges').insert({
+        user_id: userId,
+        achievement_id: ach.id,
+        earned_at: new Date().toISOString()
+      });
+      console.info(`[HofBadge] Concedido badge "${ach.title}" ao usuário ${userId}`);
+    }
+  } catch (e) {
+    console.warn('checkAndAwardHofBadge: erro (pode precisar de coluna hof_required):', e.message);
+  }
+}
+
+/**
+ * Retorna todas as conquistas com critérios de Hall da Fama configurados.
+ */
+export async function getHofAchievements() {
+  try {
+    const { data, error } = await sb.from('achievements')
+      .select('*')
+      .not('hof_required', 'is', null)
+      .order('created_at');
+    if (error) throw error;
+    return data ?? [];
+  } catch (e) { return []; }
+}
+
+/**
+ * Após reset de ranking: chama _recordHallOfFame e concede badges HOF.
+ * Exportado para ser chamado por admin.js após reset completo.
+ */
+export async function postResetAwardHofBadges(scoreType, label) {
+  try {
+    // Pega campeão do período recém registrado
+    const { data: champions } = await sb.from('hall_of_fame')
+      .select('user_id')
+      .eq('score_type', scoreType)
+      .eq('period_label', label)
+      .order('score', { ascending: false })
+      .limit(3);
+    for (const c of (champions ?? [])) {
+      await checkAndAwardHofBadge(c.user_id, scoreType);
+    }
+  } catch (e) {
+    console.warn('postResetAwardHofBadges:', e.message);
   }
 }
