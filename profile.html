@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Perfil Público — Toca das Marmotas ⚔️</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+    body { display:flex; flex-direction:column; align-items:center; min-height:100vh; padding:24px 16px; background:var(--bg-primary); }
+    .pp-nav {
+      width:100%; max-width:680px; display:flex; align-items:center;
+      justify-content:space-between; margin-bottom:24px;
+    }
+    .pp-nav-logo { font-family:var(--font-title); color:var(--gold); font-size:1rem; display:flex; align-items:center; gap:8px; text-decoration:none; }
+    .pp-nav-logo:hover { opacity:.8; }
+    .pp-card {
+      width:100%; max-width:680px;
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:var(--radius-lg); overflow:hidden;
+      box-shadow:0 20px 60px rgba(0,0,0,.4);
+    }
+    .pp-banner {
+      height:100px;
+      background:linear-gradient(135deg, #1a1208 0%, #2d1f06 40%, #1a0f02 100%);
+      position:relative;
+    }
+    .pp-banner::after {
+      content:''; position:absolute; inset:0;
+      background:repeating-linear-gradient(
+        45deg, transparent, transparent 10px,
+        rgba(212,175,55,.04) 10px, rgba(212,175,55,.04) 20px
+      );
+    }
+    .pp-header {
+      padding:0 28px 24px; position:relative;
+    }
+    .pp-avatar-wrap {
+      position:relative; display:inline-block;
+      margin-top:-40px; margin-bottom:12px;
+    }
+    .pp-avatar {
+      width:80px; height:80px; border-radius:50%;
+      background:var(--bg-input); border:3px solid var(--bg-card);
+      display:flex; align-items:center; justify-content:center;
+      font-size:2rem; font-weight:700; color:var(--gold);
+      box-shadow:0 4px 20px rgba(0,0,0,.4);
+      overflow:hidden; background-size:cover; background-position:center;
+    }
+    .pp-level-badge {
+      position:absolute; bottom:0; right:-4px;
+      background:var(--gold-dark); color:var(--bg-primary);
+      font-size:.65rem; font-weight:700; padding:2px 7px;
+      border-radius:10px; font-family:var(--font-title);
+      border:2px solid var(--bg-card);
+    }
+    .pp-name { font-family:var(--font-title); font-size:1.4rem; color:var(--text-primary); margin:0 0 4px; }
+    .pp-role { font-size:.8rem; color:var(--gold); display:flex; align-items:center; gap:6px; margin-bottom:10px; }
+    .pp-bio  { font-size:.88rem; color:var(--text-secondary); line-height:1.6; margin-bottom:14px; max-width:500px; }
+    .pp-stats {
+      display:grid; grid-template-columns:repeat(3,1fr); gap:12px;
+      padding:20px 28px;
+      border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+    }
+    .pp-stat { text-align:center; }
+    .pp-stat-value { font-family:var(--font-title); font-size:1.3rem; font-weight:700; color:var(--text-primary); }
+    .pp-stat-label { font-size:.68rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; }
+    .pp-badges { padding:20px 28px; }
+    .pp-badges h3 { font-family:var(--font-title); color:var(--gold); font-size:.9rem; margin-bottom:14px; }
+    .pp-badge-grid { display:flex; flex-wrap:wrap; gap:10px; }
+    .pp-badge-item {
+      display:flex; flex-direction:column; align-items:center; gap:4px;
+      background:var(--bg-input); border:1px solid var(--border);
+      border-radius:var(--radius-md); padding:10px 14px; min-width:80px;
+      transition:border-color .2s; cursor:default;
+      position:relative;
+    }
+    .pp-badge-item:hover { border-color:var(--gold-dark); }
+    .pp-badge-icon { font-size:1.6rem; }
+    .pp-badge-name { font-size:.68rem; color:var(--text-muted); text-align:center; white-space:nowrap; }
+    .pp-share {
+      padding:16px 28px; border-top:1px solid var(--border);
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:flex-end;
+    }
+    .pp-share-url {
+      flex:1; font-size:.75rem; color:var(--text-muted);
+      background:var(--bg-input); border:1px solid var(--border);
+      border-radius:var(--radius-sm); padding:6px 10px;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+      min-width:0;
+    }
+    .pp-not-found {
+      text-align:center; padding:60px 20px;
+    }
+    .pp-not-found i { font-size:3rem; opacity:.2; color:var(--gold); margin-bottom:16px; display:block; }
+    .pp-not-found h2 { font-family:var(--font-title); color:var(--text-primary); margin-bottom:8px; }
+    .pp-not-found p  { font-size:.85rem; color:var(--text-muted); margin-bottom:20px; }
+    .pp-loading { text-align:center; padding:60px 20px; }
+    .pp-loading i { font-size:2.5rem; color:var(--gold); opacity:.5; }
+    @media (max-width:480px) {
+      .pp-stats { grid-template-columns:1fr 1fr; }
+      .pp-header { padding:0 16px 20px; }
+      .pp-badges, .pp-share { padding:16px; }
+    }
+  </style>
+</head>
+<body class="auth-page">
+
+  <!-- Nav -->
+  <div class="pp-nav">
+    <a href="index.html" class="pp-nav-logo">
+      <i class="fas fa-shield-halved"></i> Toca das Marmotas
+    </a>
+    <a href="home.html" class="btn-primary" style="font-size:.8rem;padding:8px 14px;text-decoration:none;display:inline-flex;align-items:center;gap:6px" id="enterBtn">
+      <i class="fas fa-sign-in-alt"></i> Entrar
+    </a>
+  </div>
+
+  <!-- Profile card -->
+  <div class="pp-card" id="profileCard">
+    <div class="pp-loading">
+      <i class="fas fa-spinner fa-spin"></i>
+      <p style="margin-top:12px;color:var(--text-muted);font-size:.9rem">Carregando perfil…</p>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script type="module">
+    import { sb } from './supabase/client.js';
+
+    // ── Helpers ────────────────────────────────────────────────
+    function showToast(msg, type = 'info') {
+      const c = document.getElementById('toastContainer');
+      const t = document.createElement('div');
+      t.className = `toast toast-${type}`;
+      t.innerHTML = `<i class="fas fa-${type==='success'?'check-circle':type==='error'?'exclamation-circle':'info-circle'}"></i> ${msg}`;
+      c.appendChild(t);
+      setTimeout(() => t.classList.add('show'), 10);
+      setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 4000);
+    }
+
+    function calcLevel(xp = 0) {
+      let level = 1, xpNeeded = 100;
+      while (xp >= xpNeeded) { xp -= xpNeeded; level++; xpNeeded = Math.floor(xpNeeded * 1.35); }
+      return level;
+    }
+
+    function isEmoji(s) { return s && s.length <= 8 && !/https?:/.test(s); }
+
+    // ── Load profile from URL param ────────────────────────────
+    const params   = new URLSearchParams(window.location.search);
+    const nickname = params.get('u');
+
+    async function loadProfile() {
+      const card = document.getElementById('profileCard');
+
+      if (!nickname) {
+        card.innerHTML = renderNotFound('Nenhum usuário informado na URL.', 'Use ?u=nickname na URL.');
+        return;
+      }
+
+      try {
+        const { data, error } = await sb
+          .from('users')
+          .select(`id, nickname, profile_nickname, profile_role, icon_url,
+                   level, xp, coins, tokens, public_profile, profile_bio,
+                   social_links, created_at,
+                   user_badges(earned_at, achievements(title, icon_url, description))`)
+          .eq('nickname', nickname)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (!data) {
+          card.innerHTML = renderNotFound(`Usuário "${nickname}" não encontrado.`, 'Verifique o link ou o nickname.');
+          return;
+        }
+
+        if (!data.public_profile) {
+          card.innerHTML = renderNotFound(
+            'Perfil privado',
+            'Este jogador não tornou o perfil público. Peça para ele ativar a opção em Perfil → Perfil Público.'
+          );
+          return;
+        }
+
+        renderProfile(card, data);
+
+        // Update page title and meta
+        document.title = `${data.profile_nickname || data.nickname} — Toca das Marmotas ⚔️`;
+
+      } catch (e) {
+        card.innerHTML = renderNotFound('Erro ao carregar perfil.', e.message);
+      }
+    }
+
+    function renderProfile(card, p) {
+      const name    = p.profile_nickname || p.nickname || '?';
+      const role    = p.profile_role || 'Marmotinha';
+      const level   = p.level || calcLevel(p.xp || 0);
+      const bio     = p.profile_bio || '';
+      const badges  = p.user_badges || [];
+      const icon    = p.icon_url || '';
+      const joined  = p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR', { month:'long', year:'numeric' }) : '';
+
+      // Avatar
+      let avatarStyle = '';
+      let avatarContent = '';
+      if (icon && isEmoji(icon)) {
+        avatarContent = icon;
+        avatarStyle   = 'font-size:2.5rem;';
+      } else if (icon) {
+        avatarStyle   = `background-image:url(${icon});background-size:cover;background-position:center;`;
+      } else {
+        avatarContent = name[0].toUpperCase();
+      }
+
+      // Profile URL
+      const profileUrl = window.location.href;
+
+      card.innerHTML = `
+        <div class="pp-banner"></div>
+        <div class="pp-header">
+          <div class="pp-avatar-wrap">
+            <div class="pp-avatar" style="${avatarStyle}">${avatarContent}</div>
+            <span class="pp-level-badge">Nv.${level}</span>
+          </div>
+          <h1 class="pp-name">${name}</h1>
+          <div class="pp-role">
+            <i class="fas fa-shield-halved" style="color:var(--gold);opacity:.7"></i>
+            ${role}
+            ${joined ? `<span style="color:var(--text-muted);font-size:.75rem"> · Desde ${joined}</span>` : ''}
+          </div>
+          ${bio ? `<p class="pp-bio">${bio}</p>` : ''}
+        </div>
+
+        <div class="pp-stats">
+          <div class="pp-stat">
+            <div class="pp-stat-value">🪙 ${(p.coins||0).toLocaleString('pt-BR')}</div>
+            <div class="pp-stat-label">Moedas</div>
+          </div>
+          <div class="pp-stat">
+            <div class="pp-stat-value">💎 ${(p.tokens||0).toLocaleString('pt-BR')}</div>
+            <div class="pp-stat-label">Tokens</div>
+          </div>
+          <div class="pp-stat">
+            <div class="pp-stat-value">🏅 ${badges.length}</div>
+            <div class="pp-stat-label">Conquistas</div>
+          </div>
+        </div>
+
+        ${badges.length ? `
+        <div class="pp-badges">
+          <h3><i class="fas fa-medal"></i> Conquistas Desbloqueadas</h3>
+          <div class="pp-badge-grid">
+            ${badges.slice(0, 20).map(b => {
+              const ach = b.achievements;
+              if (!ach) return '';
+              return `<div class="pp-badge-item" title="${ach.description || ach.title}">
+                <span class="pp-badge-icon">${ach.icon_url || '🏅'}</span>
+                <span class="pp-badge-name">${ach.title}</span>
+              </div>`;
+            }).join('')}
+            ${badges.length > 20 ? `<div class="pp-badge-item" style="opacity:.5"><span class="pp-badge-icon">+${badges.length-20}</span><span class="pp-badge-name">mais</span></div>` : ''}
+          </div>
+        </div>` : ''}
+
+        <div class="pp-share">
+          <span class="pp-share-url" id="shareUrl">${profileUrl}</span>
+          <button class="btn-secondary" style="font-size:.8rem;padding:7px 14px;white-space:nowrap" onclick="copyLink()">
+            <i class="fas fa-copy"></i> Copiar Link
+          </button>
+          <button class="btn-secondary" style="font-size:.8rem;padding:7px 14px;white-space:nowrap" onclick="shareProfile()">
+            <i class="fas fa-share-alt"></i> Compartilhar
+          </button>
+        </div>`;
+    }
+
+    function renderNotFound(title, desc) {
+      return `<div class="pp-not-found">
+        <i class="fas fa-user-slash"></i>
+        <h2>${title}</h2>
+        <p>${desc}</p>
+        <a href="index.html" class="btn-primary" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;padding:10px 24px">
+          <i class="fas fa-home"></i> Ir para o início
+        </a>
+      </div>`;
+    }
+
+    // ── Copy & Share ───────────────────────────────────────────
+    window.copyLink = function() {
+      const url = document.getElementById('shareUrl')?.textContent || window.location.href;
+      navigator.clipboard.writeText(url).then(() => {
+        showToast('🔗 Link copiado!', 'success');
+      }).catch(() => {
+        showToast('Não foi possível copiar automaticamente.', 'error');
+      });
+    };
+
+    window.shareProfile = async function() {
+      const name = document.querySelector('.pp-name')?.textContent || nickname;
+      const url  = window.location.href;
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: `${name} — Toca das Marmotas`,
+            text: `Veja o perfil de ${name} na Toca das Marmotas RPG!`,
+            url
+          });
+        } catch (e) { /* user cancelled */ }
+      } else {
+        copyLink();
+      }
+    };
+
+    // ── Check login to update "Entrar" button ──────────────────
+    (async () => {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) {
+        const btn = document.getElementById('enterBtn');
+        if (btn) {
+          btn.href = 'home.html';
+          btn.innerHTML = '<i class="fas fa-home"></i> Dashboard';
+        }
+      }
+    })();
+
+    loadProfile();
+  </script>
+</body>
+</html>

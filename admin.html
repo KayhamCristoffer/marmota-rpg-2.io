@@ -87,6 +87,7 @@
       <div class="nav-item" data-tab="shop"><i class="fas fa-store"></i><span>Loja</span></div>
       <div class="nav-item" data-tab="rankings"><i class="fas fa-trophy"></i><span>Rankings</span></div>
       <div class="nav-item" data-tab="halloffame"><i class="fas fa-crown"></i><span>Hall da Fama</span></div>
+      <div class="nav-item" data-tab="group-missions"><i class="fas fa-users"></i><span>Missões em Grupo</span><span class="nav-badge" id="gmBadge"></span></div>
       <div class="nav-divider"></div>
       <div class="nav-item nav-logout" id="navLogout"><i class="fas fa-sign-out-alt"></i><span>Sair</span></div>
     </nav>
@@ -227,6 +228,11 @@
       <!-- HALL DA FAMA -->
       <div class="admin-panel" id="panel-halloffame">
         <!-- preenchido por JS -->
+      </div>
+
+      <!-- MISSÕES EM GRUPO -->
+      <div class="admin-panel" id="panel-group-missions">
+        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
       </div>
 
     </div>
@@ -476,6 +482,46 @@
       <div class="modal-footer">
         <button class="btn-secondary" onclick="closeModal('shopItemModal')">Cancelar</button>
         <button class="btn-primary" onclick="saveShopItem()"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CRIAR/EDITAR MISSÃO EM GRUPO (ADMIN) -->
+  <div class="modal-overlay" id="groupMissionAdminModal">
+    <div class="modal-box" style="max-width:600px">
+      <div class="modal-header">
+        <h3 class="modal-title" id="gmAdminModalTitle"><i class="fas fa-users"></i> Nova Missão em Grupo</h3>
+        <button class="modal-close" onclick="closeModal('groupMissionAdminModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="gmAdminEditId"/>
+      <div style="background:rgba(212,175,55,.06);border:1px solid rgba(212,175,55,.2);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.8rem;color:var(--text-muted)">
+        <i class="fas fa-info-circle" style="color:var(--gold)"></i>
+        <strong>Como funciona:</strong> Vincule a uma quest. Os jogadores participam e enviam <strong>1 print com todos visíveis</strong>.
+        O admin aprova e as recompensas extras são distribuídas para todos os membros.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr;gap:12px">
+        <div class="form-group"><label>Título da Missão *</label><input type="text" id="gmAdminTitle" placeholder="Ex: Dungeon do Dragão em Grupo" maxlength="80"/></div>
+        <div class="form-group"><label>Descrição / Objetivo</label><textarea id="gmAdminDescription" placeholder="Descreva o objetivo…" style="height:60px"></textarea></div>
+        <div class="form-group">
+          <label>Quest Vinculada <small>(o print deve mostrar a quest sendo completada)</small></label>
+          <select id="gmAdminQuestId"><option value="">— Sem quest vinculada —</option></select>
+        </div>
+        <div class="form-group">
+          <label>Instrução para o Comprovante <small>(o que deve aparecer no print)</small></label>
+          <input type="text" id="gmAdminProofNote" placeholder="Ex: Print com todos os jogadores visíveis no mapa completando a quest" maxlength="200"/>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div class="form-group"><label>Mín. de Membros para completar *</label><input type="number" id="gmAdminRequired" value="2" min="2" max="50"/></div>
+        <div class="form-group"><label>Máx. de Membros (inscrições)</label><input type="number" id="gmAdminMax" value="10" min="2" max="50"/></div>
+        <div class="form-group"><label>🪙 Recompensa Extra (Moedas)</label><input type="number" id="gmAdminCoins" value="0" min="0"/></div>
+        <div class="form-group"><label>💎 Recompensa Extra (Tokens)</label><input type="number" id="gmAdminTokens" value="0" min="0"/></div>
+        <div class="form-group"><label>⭐ Recompensa Extra (XP)</label><input type="number" id="gmAdminXp" value="0" min="0"/></div>
+        <div class="form-group"><label>Prazo (Deadline) <small>opcional</small></label><input type="datetime-local" id="gmAdminDeadline"/></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('groupMissionAdminModal')">Cancelar</button>
+        <button class="btn-primary" onclick="saveGroupMission()"><i class="fas fa-save"></i> Salvar Missão</button>
       </div>
     </div>
   </div>

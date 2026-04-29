@@ -377,10 +377,12 @@
             <span><i class="fas fa-globe"></i> Perfil público <small style="color:var(--text-muted)">(permite busca por outros jogadores)</small></span>
           </label>
         </div>
-        <div id="profileUrlRow" style="display:none;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-input);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
+        <div id="profileUrlRow" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg-input);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
           <i class="fas fa-link" style="color:var(--gold)"></i>
           <span>Seu link público:</span>
-          <span id="profilePublicUrl" style="color:var(--gold);word-break:break-all"></span>
+          <a id="profilePublicUrl" href="#" target="_blank" style="color:var(--gold);word-break:break-all;text-decoration:none"></a>
+          <button class="btn-secondary" style="font-size:.75rem;padding:3px 9px" id="copyProfileUrlBtn"><i class="fas fa-copy"></i> Copiar</button>
+          <button class="btn-secondary" style="font-size:.75rem;padding:3px 9px" onclick="openMyShareModal()"><i class="fas fa-share-alt"></i> Compartilhar</button>
         </div>
         <div id="publicProfileHint" style="font-size:.78rem;color:var(--text-muted);min-height:18px"></div>
         <button class="btn-primary" id="saveProfileBtn"><i class="fas fa-save"></i> Salvar</button>
@@ -431,13 +433,22 @@
     <div class="page" id="page-group-missions">
       <div class="page-header">
         <h2 class="page-title"><i class="fas fa-users"></i> Missões em Grupo</h2>
-        <button class="btn-primary" style="font-size:.8rem;padding:8px 14px" onclick="openCreateGroupMissionModal()">
-          <i class="fas fa-plus"></i> Nova Missão
+        <!-- admin-only create button — shown by JS -->
+        <button class="btn-primary gm-admin-only" id="btnNewGroupMission"
+          style="font-size:.8rem;padding:8px 14px;display:none"
+          onclick="window.location.href='admin.html'">
+          <i class="fas fa-cog"></i> Gerenciar (Admin)
         </button>
       </div>
       <p style="font-size:.83rem;color:var(--text-secondary);margin-bottom:16px">
-        Une forças com outros jogadores para completar missões juntos!
+        Missões criadas pelo admin — junte-se, complete o objetivo e envie o comprovante!
       </p>
+      <!-- filter bar -->
+      <div class="filter-bar" style="margin-bottom:1rem">
+        <button class="filter-btn active" data-gm-filter="all"    onclick="setGmFilter('all')"   ><i class="fas fa-list"></i> Todas</button>
+        <button class="filter-btn"        data-gm-filter="open"   onclick="setGmFilter('open')"  ><i class="fas fa-lock-open"></i> Abertas</button>
+        <button class="filter-btn"        data-gm-filter="completed" onclick="setGmFilter('completed')"><i class="fas fa-check"></i> Concluídas</button>
+      </div>
       <div id="groupMissionsContainer">
         <div class="empty-state"><i class="fas fa-spinner fa-spin"></i><h3>Carregando…</h3></div>
       </div>
@@ -574,35 +585,50 @@
   </div>
 
   <!-- ============================================================ -->
-  <!-- MODAL: CRIAR MISSÃO EM GRUPO                                 -->
+  <!-- MODAL: ENVIAR COMPROVANTE DE MISSÃO EM GRUPO                 -->
   <!-- ============================================================ -->
-  <div class="modal-overlay" id="createGroupMissionModal">
-    <div class="modal-box" style="max-width:480px">
+  <div class="modal-overlay" id="gmProofModal">
+    <div class="modal-box" style="max-width:520px">
       <div class="modal-header">
-        <h3 class="modal-title"><i class="fas fa-users"></i> Criar Missão em Grupo</h3>
-        <button class="modal-close" onclick="closeModal('createGroupMissionModal')"><i class="fas fa-times"></i></button>
+        <h3 class="modal-title"><i class="fas fa-image"></i> Enviar Comprovante da Missão</h3>
+        <button class="modal-close" onclick="closeModal('gmProofModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <input type="hidden" id="gmProofMissionId"/>
+      <div id="gmProofMissionInfo" style="background:rgba(212,175,55,.07);border:1px solid rgba(212,175,55,.2);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px;font-size:.82rem;color:var(--text-secondary)">
+        <!-- filled by JS -->
       </div>
       <div class="form-group">
-        <label>Título da Missão *</label>
-        <input type="text" id="gmTitle" placeholder="Ex: Dungeon do Dragão em Grupo" maxlength="80" style="width:100%"/>
+        <label>Link do Screenshot <small>(imgur, prnt.sc, gyazo…)</small></label>
+        <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:6px">
+          <i class="fas fa-info-circle" style="color:var(--gold)"></i>
+          O print deve mostrar <strong>todos os participantes</strong> no mesmo jogo/mapa completando a missão.
+        </p>
+        <input type="url" id="gmProofUrl" placeholder="https://i.imgur.com/xxxxx.png" style="width:100%"/>
       </div>
       <div class="form-group">
-        <label>Descrição</label>
-        <textarea id="gmDescription" placeholder="Descreva o objetivo da missão…" style="width:100%;height:70px"></textarea>
-      </div>
-      <div class="form-group">
-        <label>Máx. de Membros</label>
-        <select id="gmMaxMembers" style="width:100%">
-          <option value="2">2 jogadores</option>
-          <option value="3">3 jogadores</option>
-          <option value="4" selected>4 jogadores</option>
-          <option value="6">6 jogadores</option>
-          <option value="8">8 jogadores</option>
-        </select>
+        <label>Nota adicional <small>(opcional)</small></label>
+        <input type="text" id="gmProofNote" placeholder="Ex: Todos estávamos no mapa X às 20h" maxlength="200" style="width:100%"/>
       </div>
       <div class="modal-footer">
-        <button class="btn-secondary" onclick="closeModal('createGroupMissionModal')">Cancelar</button>
-        <button class="btn-primary" onclick="confirmCreateGroupMission()"><i class="fas fa-plus"></i> Criar</button>
+        <button class="btn-secondary" onclick="closeModal('gmProofModal')">Cancelar</button>
+        <button class="btn-primary" id="gmProofSubmitBtn" onclick="confirmGmProofSubmit()">
+          <i class="fas fa-paper-plane"></i> Enviar Comprovante
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: SOCIAL SHARING                                        -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="shareModal">
+    <div class="modal-box" style="max-width:420px">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fas fa-share-alt"></i> Compartilhar</h3>
+        <button class="modal-close" onclick="closeModal('shareModal')"><i class="fas fa-times"></i></button>
+      </div>
+      <div id="shareModalBody" style="display:flex;flex-direction:column;gap:12px;padding:4px 0">
+        <!-- filled by JS -->
       </div>
     </div>
   </div>
