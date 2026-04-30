@@ -865,6 +865,41 @@ input,select,textarea { font-family:inherit; }
 }
 .gm-member-initial { font-size:.75rem; font-weight:700; color:var(--gold); }
 .gm-member-more { font-size:.72rem; color:var(--text-muted); background:var(--bg-hover); }
+.gm-member-link { text-decoration:none; display:inline-flex; }
+.gm-rewards { display:flex; gap:6px; flex-wrap:wrap; }
+.gm-reward-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  font-size:.72rem; font-weight:700; border-radius:10px;
+  padding:3px 9px; font-family:var(--font-title);
+}
+.gm-reward-badge.coins  { background:rgba(212,175,55,.15);  color:var(--gold); border:1px solid rgba(212,175,55,.3); }
+.gm-reward-badge.tokens { background:rgba(192,132,252,.15); color:#c084fc;     border:1px solid rgba(192,132,252,.3); }
+.gm-reward-badge.xp     { background:rgba(52,211,153,.15);  color:#34d399;     border:1px solid rgba(52,211,153,.3); }
+.gm-proof-hint {
+  font-size:.78rem; color:var(--text-secondary); background:rgba(212,175,55,.06);
+  border:1px solid rgba(212,175,55,.15); border-radius:var(--radius-sm);
+  padding:7px 12px; display:flex; gap:6px; align-items:flex-start;
+}
+.gm-proof-hint i { color:var(--gold); margin-top:1px; flex-shrink:0; }
+.gm-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:4px; }
+.gm-btn { font-size:.8rem; padding:7px 14px; display:inline-flex; align-items:center; gap:6px; }
+.gm-proof-status {
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:.78rem; font-weight:600; padding:5px 12px;
+  border-radius:var(--radius-sm);
+}
+.gm-proof-status.pending  { background:rgba(245,158,11,.12); color:#f59e0b; border:1px solid rgba(245,158,11,.3); }
+.gm-proof-status.approved { background:rgba(52,211,153,.12); color:#34d399; border:1px solid rgba(52,211,153,.3); }
+
+/* ─── BTN-ICON (small icon-only button) ─────────────────────── */
+.btn-icon {
+  background:var(--bg-input); border:1px solid var(--border);
+  color:var(--text-secondary); border-radius:var(--radius-sm);
+  width:32px; height:32px; display:inline-flex; align-items:center;
+  justify-content:center; cursor:pointer; transition:border-color .15s, color .15s;
+  flex-shrink:0; padding:0;
+}
+.btn-icon:hover { border-color:var(--gold-dark); color:var(--gold); }
 
 /* ─── FRIENDS ─────────────────────────────────────────────────── */
 .friend-row {

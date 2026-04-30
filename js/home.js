@@ -1565,9 +1565,24 @@ window.handleLeaveMission = async function(missionId) {
 };
 
 // ─── FRIENDS PAGE ─────────────────────────────────────────────
+// (improved version below — old stub removed)
+
+function _renderFriendAvatar(u, size = 38) {
+  const name = u?.profile_nickname || u?.nickname || '?';
+  const ico  = u?.icon_url;
+  const nick = u?.nickname || '';
+  const pub  = u?.public_profile;
+  const wrapper = pub ? `href="profile.html?u=${nick}"` : '';
+  const tag     = pub ? 'a' : 'span';
+  const style   = `width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:${size > 36 ? '1.4rem' : '1.1rem'};text-decoration:none;`;
+  if (ico && ico.length <= 8 && !ico.startsWith('http')) {
+    return `<${tag} ${wrapper} style="${style}">${ico}</${tag}>`;
+  }
+  return `<${tag} ${wrapper} style="${style};background:var(--bg-input);border:1px solid var(--border);font-weight:700;font-size:${size > 36 ? '.9rem' : '.75rem'};color:var(--gold);">${(name[0]||'?').toUpperCase()}</${tag}>`;
+}
 
 async function loadFriendsPage() {
-  const container = document.getElementById('friendsContainer');
+  const container    = document.getElementById('friendsContainer');
   const reqContainer = document.getElementById('friendRequestsContainer');
   if (!container) return;
 
@@ -1579,64 +1594,71 @@ async function loadFriendsPage() {
       getFriendRequests(currentUser.id).catch(() => [])
     ]);
 
-    // Renderiza pedidos pendentes
+    // ── Pedidos pendentes ──────────────────────────────────
     if (reqContainer) {
       if (requests.length) {
         reqContainer.style.display = 'block';
-        reqContainer.innerHTML = `<div class="friends-requests-header"><i class="fas fa-bell"></i> Pedidos de amizade (${requests.length})</div>` +
+        reqContainer.innerHTML =
+          `<div class="friends-requests-header"><i class="fas fa-bell"></i> Pedidos de amizade (${requests.length})</div>` +
           requests.map(r => {
-            const name = r.req?.profile_nickname || r.req?.nickname || '?';
-            const ico  = r.req?.icon_url;
-            const avatarHtml = ico && ico.length <= 8 && !ico.startsWith('http')
-              ? `<span style="font-size:1.5rem">${ico}</span>`
-              : `<div class="friend-avatar">${name[0].toUpperCase()}</div>`;
+            const u    = r.req;
+            const name = u?.profile_nickname || u?.nickname || '?';
             return `<div class="friend-row">
-              ${avatarHtml}
-              <div class="friend-info"><span class="friend-name">${name}</span><span class="friend-meta">Nv.${r.req?.level||1}</span></div>
-              <button class="btn-primary" style="font-size:.8rem;padding:6px 12px" onclick="handleAcceptFriend('${r.req?.id}')">
+              ${_renderFriendAvatar(u)}
+              <div class="friend-info">
+                <span class="friend-name">${name}</span>
+                <span class="friend-meta">Nv.${u?.level||1}</span>
+              </div>
+              ${u?.public_profile ? `<a href="profile.html?u=${u.nickname}" target="_blank" class="btn-secondary" style="font-size:.75rem;padding:5px 9px" title="Ver perfil"><i class="fas fa-user"></i></a>` : ''}
+              <button class="btn-primary" style="font-size:.8rem;padding:6px 12px" onclick="handleAcceptFriend('${u?.id}')">
                 <i class="fas fa-check"></i> Aceitar
               </button>
             </div>`;
           }).join('');
-      } else { reqContainer.style.display = 'none'; }
+      } else {
+        reqContainer.style.display = 'none';
+      }
     }
 
-    // Renderiza amigos
+    // ── Barra de busca ─────────────────────────────────────
+    const searchBar = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input type="text" id="friendSearchInput" placeholder="Buscar jogador por nickname…"
+        style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')handleSearchFriend()"/>
+      <button class="btn-primary" style="font-size:.82rem" onclick="handleSearchFriend()">
+        <i class="fas fa-search"></i> Buscar
+      </button>
+    </div>
+    <div id="friendSearchResults" style="margin-bottom:12px"></div>`;
+
+    // ── Lista de amigos ────────────────────────────────────
     if (!friends.length) {
-      container.innerHTML = `<div class="empty-state">
-        <i class="fas fa-users" style="font-size:2rem;opacity:.3;margin-bottom:8px"></i>
+      container.innerHTML = `${searchBar}<div class="empty-state" style="padding:32px 0">
+        <i class="fas fa-user-friends" style="font-size:2rem;opacity:.3;margin-bottom:8px"></i>
         <h3>Nenhum amigo ainda</h3>
-        <p style="font-size:.82rem;color:var(--text-muted)">Encontre outros jogadores para adicionar!</p>
-        <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap">
-          <input type="text" id="friendSearchInput" placeholder="Buscar jogador por nickname…" style="flex:1;min-width:180px;max-width:280px"/>
-          <button class="btn-primary" style="font-size:.82rem" onclick="handleSearchFriend()"><i class="fas fa-search"></i> Buscar</button>
-        </div>
-        <div id="friendSearchResults" style="margin-top:12px;width:100%;max-width:400px"></div>
+        <p style="font-size:.82rem;color:var(--text-muted)">Encontre outros jogadores acima!</p>
       </div>`;
       return;
     }
 
-    container.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-      <input type="text" id="friendSearchInput" placeholder="Buscar jogador por nickname…" style="flex:1;min-width:180px"/>
-      <button class="btn-primary" style="font-size:.82rem" onclick="handleSearchFriend()"><i class="fas fa-search"></i> Buscar</button>
-    </div>
-    <div id="friendSearchResults" style="margin-bottom:12px"></div>
-    <div style="display:flex;flex-direction:column;gap:8px">` +
+    container.innerHTML = searchBar +
+      `<div style="display:flex;flex-direction:column;gap:8px">` +
       friends.map(f => {
-        const u = f.friend;
+        const u    = f.friend;
         const name = u?.profile_nickname || u?.nickname || '?';
-        const ico  = u?.icon_url;
-        const avatarHtml = ico && ico.length <= 8 && !ico.startsWith('http')
-          ? `<span style="font-size:1.5rem">${ico}</span>`
-          : `<div class="friend-avatar">${(name[0]||'?').toUpperCase()}</div>`;
         return `<div class="friend-row">
-          ${avatarHtml}
+          ${_renderFriendAvatar(u)}
           <div class="friend-info">
             <span class="friend-name">${name}</span>
             <span class="friend-meta">Nv.${u?.level||1}</span>
           </div>
+          ${u?.public_profile ? `<a href="profile.html?u=${u.nickname}" target="_blank"
+              class="btn-secondary" style="font-size:.75rem;padding:5px 9px" title="Ver perfil público">
+              <i class="fas fa-user"></i></a>` : ''}
+          <button class="btn-icon" title="Compartilhar perfil" onclick="openShareModal('${u?.nickname||''}','${name}')">
+            <i class="fas fa-share-alt"></i>
+          </button>
           <button class="btn-secondary" style="font-size:.78rem;padding:5px 10px;color:var(--text-muted)"
-            onclick="handleRemoveFriend('${u?.id}','${name}')">
+            onclick="handleRemoveFriend('${u?.id}','${name}')" title="Remover amigo">
             <i class="fas fa-user-minus"></i>
           </button>
         </div>`;
@@ -1668,38 +1690,80 @@ window.handleRemoveFriend = async function(otherId, name) {
 };
 
 window.handleSearchFriend = async function() {
-  const q = document.getElementById('friendSearchInput')?.value?.trim();
+  const q         = document.getElementById('friendSearchInput')?.value?.trim();
   const resultsEl = document.getElementById('friendSearchResults');
-  if (!q || !resultsEl) return;
+  if (!resultsEl) return;
+  if (!q) { resultsEl.innerHTML = ''; return; }
   resultsEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
   try {
-    const { searchPublicUsers } = await import('../supabase/database.js');
     const users = await searchPublicUsers(q);
-    if (!users.length) { resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted)">Nenhum jogador público encontrado.</p>'; return; }
-    resultsEl.innerHTML = users.filter(u => u.id !== currentUser?.id).map(u => {
+    const filtered = users.filter(u => u.id !== currentUser?.id);
+    if (!filtered.length) {
+      resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted)">Nenhum jogador público encontrado.</p>';
+      return;
+    }
+    resultsEl.innerHTML = filtered.map(u => {
       const name = u.profile_nickname || u.nickname || '?';
-      const ico  = u.icon_url;
-      const avatarHtml = ico && ico.length <= 8 && !ico.startsWith('http')
-        ? `<span style="font-size:1.3rem">${ico}</span>`
-        : `<div class="friend-avatar" style="width:32px;height:32px;font-size:.8rem">${name[0].toUpperCase()}</div>`;
       return `<div class="friend-row" style="padding:8px">
-        ${avatarHtml}
-        <div class="friend-info"><span class="friend-name" style="font-size:.85rem">${name}</span></div>
-        <button class="btn-primary" style="font-size:.78rem;padding:5px 10px" onclick="handleAddFriend('${u.id}','${name}')">
+        ${_renderFriendAvatar(u, 32)}
+        <div class="friend-info">
+          <span class="friend-name" style="font-size:.85rem">${name}</span>
+          <span class="friend-meta">Nv.${u.level||1}</span>
+        </div>
+        <a href="profile.html?u=${u.nickname||''}" target="_blank"
+           class="btn-secondary" style="font-size:.75rem;padding:5px 9px" title="Ver perfil">
+          <i class="fas fa-user"></i>
+        </a>
+        <button class="btn-primary" style="font-size:.78rem;padding:5px 10px"
+          onclick="handleAddFriend('${u.id}','${name.replace(/'/g,"\\'")}')">
           <i class="fas fa-user-plus"></i> Adicionar
         </button>
       </div>`;
     }).join('');
-  } catch (e) { resultsEl.innerHTML = `<p style="color:var(--text-muted);font-size:.82rem">${e.message}</p>`; }
+  } catch (e) {
+    resultsEl.innerHTML = `<p style="color:var(--text-muted);font-size:.82rem">${e.message}</p>`;
+  }
 };
 
-window.handleAddFriend = async function(targetId, name) {
-  showLoading('Enviando pedido de amizade…');
-  try {
-    await sendFriendRequest(currentUser.id, targetId);
-    showToast(`✅ Pedido de amizade enviado para ${name}!`, 'success');
-  } catch (e) { showToast(e.message === 'duplicate key' ? 'Pedido já enviado!' : e.message, 'error'); }
-  finally { hideLoading(); }
+// ─── SOCIAL SHARING ───────────────────────────────────────────
+
+window.openShareModal = function(nickname, displayName) {
+  const base     = window.location.hostname.includes('github.io')
+    ? 'https://kayhamcristoffer.github.io/marmota-rpg-2.io'
+    : window.location.origin;
+  const profileUrl = nickname ? `${base}/profile.html?u=${encodeURIComponent(nickname)}` : null;
+  const body = document.getElementById('shareModalBody');
+  if (!body) return;
+
+  body.innerHTML = `
+    <p style="font-size:.85rem;color:var(--text-secondary)">Compartilhe o perfil de <strong>${displayName}</strong>:</p>
+    ${profileUrl ? `
+    <div style="display:flex;gap:8px;align-items:center;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:.82rem;word-break:break-all;color:var(--text-secondary)">
+      <span style="flex:1">${profileUrl}</span>
+      <button class="btn-secondary" style="font-size:.75rem;padding:4px 10px;flex-shrink:0"
+        onclick="navigator.clipboard.writeText('${profileUrl}');showToast('Link copiado!','success')">
+        <i class="fas fa-copy"></i> Copiar
+      </button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a href="https://twitter.com/intent/tweet?text=${encodeURIComponent('Confira o perfil de '+displayName+' no Toca das Marmotas!')}&url=${encodeURIComponent(profileUrl)}"
+         target="_blank" class="btn-secondary" style="font-size:.82rem;display:flex;align-items:center;gap:6px;text-decoration:none">
+        <i class="fab fa-twitter" style="color:#1da1f2"></i> Twitter/X
+      </a>
+      <a href="https://wa.me/?text=${encodeURIComponent('Confira o perfil de '+displayName+' no Toca das Marmotas! '+profileUrl)}"
+         target="_blank" class="btn-secondary" style="font-size:.82rem;display:flex;align-items:center;gap:6px;text-decoration:none">
+        <i class="fab fa-whatsapp" style="color:#25d366"></i> WhatsApp
+      </a>
+    </div>` : `<p style="font-size:.82rem;color:var(--text-muted)">Este jogador ainda não tem perfil público.</p>`}
+  `;
+  openModal('shareModal');
+};
+
+window.openMyShareModal = function() {
+  const p = currentProfile;
+  if (!p) return;
+  const nick = p.nickname || '';
+  openShareModal(p.public_profile ? nick : '', p.profile_nickname || p.nickname || 'Meu Perfil');
 };
 
 // ─── FRIENDS PAGE – improved ──────────────────────────────────

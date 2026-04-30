@@ -1457,18 +1457,25 @@ export async function getAdminAnalytics() {
 // ─── CONQUISTAS BASEADAS EM RANKING (Hall da Fama) ─────────────
 
 /**
- * Verifica se o usuário entrou no Hall da Fama e concede o badge correspondente.
- * Chamado automaticamente após um reset de ranking que registre um campeão.
+ * Verifica se o usuário atingiu o número de entradas no Hall da Fama
+ * e concede os badges correspondentes (hof_required agora é INT).
+ * Chamado automaticamente após um reset de ranking.
  * @param {string} userId
  * @param {string} scoreType 'daily'|'weekly'|'monthly'
  */
 export async function checkAndAwardHofBadge(userId, scoreType = 'monthly') {
   try {
-    // Busca conquista do tipo Hall da Fama para o período
+    // Busca quantas vezes o usuário entrou no Hall da Fama
+    const { data: u } = await sb.from('users')
+      .select('hof_entries').eq('id', userId).maybeSingle();
+    const hofEntries = u?.hof_entries ?? 0;
+
+    // Busca conquistas que exigem número de entradas no HOF
     const { data: achievements } = await sb.from('achievements')
       .select('id, title, hof_required')
-      .eq('hof_required', scoreType)
-      .limit(5);
+      .gt('hof_required', 0)
+      .lte('hof_required', hofEntries + 1) // inclui quem acabou de ganhar a entrada
+      .limit(20);
     if (!achievements?.length) return;
 
     for (const ach of achievements) {
@@ -1489,7 +1496,7 @@ export async function checkAndAwardHofBadge(userId, scoreType = 'monthly') {
       console.info(`[HofBadge] Concedido badge "${ach.title}" ao usuário ${userId}`);
     }
   } catch (e) {
-    console.warn('checkAndAwardHofBadge: erro (pode precisar de coluna hof_required):', e.message);
+    console.warn('checkAndAwardHofBadge: erro (execute migração v12):', e.message);
   }
 }
 

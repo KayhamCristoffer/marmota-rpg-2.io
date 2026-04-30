@@ -564,7 +564,7 @@ async function loadAchievements() {
         <span style="font-size:1.5rem">${a.icon_url || '🏅'}</span>
         <div style="flex:1">
           <div style="font-family:var(--font-title);color:var(--text-primary)">${a.title}</div>
-          <div style="font-size:.75rem;color:var(--text-secondary)">${catLabels[a.category_type] || a.category_type || '?'} · ${a.quests_required || 0} quests · ${a.maps_required || 0} mapas · Nível ${a.level_required || 0}+${a.one_time_redeem ? ' · 🔒 Único' : ''}</div>
+          <div style="font-size:.75rem;color:var(--text-secondary)">${catLabels[a.category_type] || a.category_type || '?'} · ${a.quests_required || 0} quests · ${a.maps_required || 0} mapas · Nível ${a.level_required || 0}+${a.hof_required ? ` · 🏆 HoF×${a.hof_required}` : ''}${a.group_missions_required ? ` · 👥 GM×${a.group_missions_required}` : ''}${a.one_time_redeem ? ' · 🔒 Único' : ''}</div>
         </div>
         <div class="admin-item-actions">
           <button class="btn-edit btn-sm"   onclick="openAchievementModal('${a.id}')"><i class="fas fa-edit"></i></button>
@@ -578,7 +578,7 @@ window.openAchievementModal = async function(achId) {
   ['achTitle', 'achDescription', 'achIcon', 'achCategory', 'achEditId', 'achEventStart', 'achEventEnd'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
-  ['achLevel', 'achQuests', 'achMaps', 'achCoins', 'achXp', 'achTokens'].forEach(id => {
+  ['achLevel', 'achQuests', 'achMaps', 'achCoins', 'achXp', 'achTokens', 'achHofRequired', 'achGroupMissionsRequired'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '0';
   });
   const ctEl = document.getElementById('achCategoryType');
@@ -603,6 +603,10 @@ window.openAchievementModal = async function(achId) {
         document.getElementById('achCoins').value       = a.reward_coins    || 0;
         document.getElementById('achXp').value          = a.reward_xp       || 0;
         document.getElementById('achTokens').value      = a.reward_tokens   || 0;
+        const hofEl = document.getElementById('achHofRequired');
+        const gmEl  = document.getElementById('achGroupMissionsRequired');
+        if (hofEl) hofEl.value = a.hof_required             || 0;
+        if (gmEl)  gmEl.value  = a.group_missions_required  || 0;
         if (ctEl) ctEl.value = a.category_type || 'quest';
         if (otEl) otEl.checked = !!a.one_time_redeem;
         const esEl = document.getElementById('achEventStart');
@@ -632,9 +636,11 @@ window.saveAchievement = async function() {
     reward_coins:    parseInt(document.getElementById('achCoins').value)   || 0,
     reward_xp:       parseInt(document.getElementById('achXp').value)      || 0,
     reward_tokens:   parseInt(document.getElementById('achTokens').value)  || 0,
-    one_time_redeem: document.getElementById('achOneTime')?.checked || false,
-    event_start:     (esEl?.value) ? new Date(esEl.value).toISOString() : null,
-    event_end:       (eeEl?.value) ? new Date(eeEl.value).toISOString() : null
+    one_time_redeem:          document.getElementById('achOneTime')?.checked || false,
+    hof_required:             parseInt(document.getElementById('achHofRequired')?.value)            || 0,
+    group_missions_required:  parseInt(document.getElementById('achGroupMissionsRequired')?.value)  || 0,
+    event_start:              (esEl?.value) ? new Date(esEl.value).toISOString() : null,
+    event_end:                (eeEl?.value) ? new Date(eeEl.value).toISOString() : null
   };
   if (!data.title) { showToast('Título é obrigatório', 'warning'); return; }
   try {
@@ -936,11 +942,7 @@ function setupResetButtons() {
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Resetando…';
     try {
       await resetDailyRankingFull();
-      // Award HOF badges after reset
-      try {
-        const { brtPeriodLabel: bpl } = await import('../supabase/database.js');
-        await postResetAwardHofBadges('daily', brtPeriodLabel('daily'));
-      } catch(_) {}
+      try { await postResetAwardHofBadges('daily', brtPeriodLabel('daily')); } catch(_) {}
       showToast('✅ Ranking diário resetado! Hall da Fama e histórico salvos.', 'success');
       await loadRankingHistory();
     } catch (err) { showToast(err.message, 'error'); }

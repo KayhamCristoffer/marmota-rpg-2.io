@@ -401,6 +401,17 @@
           <input type="datetime-local" id="achEventEnd"/>
         </div>
       </div>
+      <!-- Hall da Fama / Ranking fields -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:4px">
+        <div class="form-group">
+          <label>Entradas no Hall da Fama <small>(0 = sem critério)</small></label>
+          <input type="number" id="achHofRequired" value="0" min="0" title="Quantas vezes o jogador precisa entrar no Hall da Fama para desbloquear"/>
+        </div>
+        <div class="form-group">
+          <label>Missões em Grupo Concluídas <small>(0 = sem critério)</small></label>
+          <input type="number" id="achGroupMissionsRequired" value="0" min="0"/>
+        </div>
+      </div>
       <div class="form-group" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="achOneTime" style="accent-color:var(--gold);width:16px;height:16px"/>
         <label style="text-transform:none;letter-spacing:normal;font-weight:400;font-size:.9rem;cursor:pointer" for="achOneTime">
