@@ -1,0 +1,13 @@
+{
+  "name": "toca-das-marmotas-tests",
+  "version": "13.0.0",
+  "description": "Test suite for Toca das Marmotas RPG",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/test_suite.js",
+    "test:watch": "node --watch tests/test_suite.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0"
+  }
+}
